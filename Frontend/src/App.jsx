@@ -1,4 +1,4 @@
-import React from 'react';
+import React,{useEffect} from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -10,7 +10,7 @@ import Login from './pages/Login';
 import AwaitingApproval from './pages/AwaitingApproval';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AdminDashboard from './pages/AdminDashboard';
-import TimetableView from './pages/TimetableView';
+import TimetableView from './pages/TimeTableView';
 
 const DashboardRouter = () => {
   const { user } = useAuth();
@@ -25,6 +25,19 @@ const DashboardRouter = () => {
 };
 
 function App() {
+
+useEffect(() => {
+  const wakeBackend = async () => {
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/health`);
+    } catch (err) {
+      console.log("Backend wake-up ping failed (probably sleeping)");
+    }
+  };
+
+  wakeBackend();
+}, []);
+
   return (
     <BrowserRouter>
       <AuthProvider>
