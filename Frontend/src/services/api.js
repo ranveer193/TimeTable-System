@@ -53,11 +53,13 @@ export const superAdminAPI = {
   getActiveAdmins:   () => api.get('/super-admin/active-admins'),
   getDisabledAdmins: () => api.get('/super-admin/disabled-admins'),
   getAllTimetables:   () => api.get('/super-admin/timetables'),
+  getUsers:   () => api.get('/super-admin/users'),
   approveUser: (id, data) => {
     if (!id) return Promise.reject(new Error('User ID required'));
     if (!data?.role || !data?.department) return Promise.reject(new Error('Role and department required'));
     return api.put(`/super-admin/approve/${id}`, data);
   },
+  deleteUser: (id) => id ? api.delete(`/super-admin/users/${id}`) : Promise.reject(new Error('ID required')),
   rejectUser:        (id) => id ? api.delete(`/super-admin/reject/${id}`) : Promise.reject(new Error('ID required')),
   toggleAdminStatus: (id) => id ? api.put(`/super-admin/toggle-status/${id}`) : Promise.reject(new Error('ID required')),
 };

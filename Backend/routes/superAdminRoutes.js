@@ -8,7 +8,9 @@ const {
   rejectUser,
   toggleAdminStatus,
   getDashboardStats,
-  getAllTimetables
+  getAllTimetables,
+  getUsers,
+  deleteUser
 } = require('../controllers/superAdminController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -21,9 +23,11 @@ router.get('/active-admins', getActiveAdmins);
 router.get('/disabled-admins', getDisabledAdmins);
 router.get('/stats', getDashboardStats);
 router.get('/timetables', getAllTimetables);
+router.get('/users',getUsers);  
 
 router.put('/approve/:id', approveUser);
-router.delete('/reject/:id', rejectUser);
+router.delete('/reject/:id',rejectUser);
+router.delete('/users/:id',deleteUser);
 router.put('/toggle-status/:id', toggleAdminStatus);
 
 module.exports = router;
