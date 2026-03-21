@@ -1,108 +1,105 @@
-const Timetable = require('../models/Timetable');
+const Timetable     = require('../models/Timetable');
 const TimetableCell = require('../models/TimetableCell');
-const mongoose = require('mongoose');
+const TimetableLog  = require('../models/TimetableLog');
+const { enrichWithCellStats } = require('../utils/enrichTimetables');
+const mongoose      = require('mongoose');
+const crypto        = require('crypto');
 
-/**
- * ===============================
- * CREATE TIMETABLE (ROOM-BASED)
- * ===============================
- * Admin only
- */
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const generateCells = (timetableId, days, periodsPerDay) => {
+  const cells = [];
+  for (const day of days) {
+    for (let period = 1; period <= periodsPerDay; period++) {
+      cells.push({ timetableId, day, period, subject: '', department: 'NONE', editableByRole: 'ALL' });
+    }
+  }
+  return cells;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREATE — SUPER_ADMIN only
+// ─────────────────────────────────────────────────────────────────────────────
 exports.createTimetable = async (req, res) => {
   try {
-    const { roomName, className, days, periodsPerDay } = req.body;
+    if (req.user.role !== 'SUPER_ADMIN')
+      return res.status(403).json({ success: false, message: 'Only Super Admin can create timetables' });
 
-    // Validation
-    if (!roomName || !className || !days || !periodsPerDay) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide all required fields'
-      });
-    }
+    const { roomName, days, periodsPerDay } = req.body;
+    if (!roomName || !days || !periodsPerDay)
+      return res.status(400).json({ success: false, message: 'roomName, days, and periodsPerDay are required' });
+    if (!Array.isArray(days) || !days.length)
+      return res.status(400).json({ success: false, message: 'Days must be a non-empty array' });
+    if (typeof periodsPerDay !== 'number' || periodsPerDay < 1 || periodsPerDay > 20)
+      return res.status(400).json({ success: false, message: 'Periods per day must be between 1 and 20' });
 
-    if (!Array.isArray(days) || days.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Days must be a non-empty array'
-      });
-    }
-
-    if (typeof periodsPerDay !== 'number' || periodsPerDay < 1 || periodsPerDay > 20) {
-      return res.status(400).json({
-        success: false,
-        message: 'Periods per day must be between 1 and 20'
-      });
-    }
-
-    // Prevent duplicate timetable for same room
-    const existingTimetable = await Timetable.findOne({
-      roomName: roomName.trim(),
-      className: className.trim()
-    });
-
-    if (existingTimetable) {
-      return res.status(409).json({
-        success: false,
-        message: 'Timetable already exists for this room and class'
-      });
-    }
+    if (await Timetable.findOne({ roomName: roomName.trim() }))
+      return res.status(409).json({ success: false, message: 'A timetable for this room already exists' });
 
     const timetable = await Timetable.create({
       roomName: roomName.trim(),
-      className: className.trim(),
       days: days.map(d => d.trim()),
       periodsPerDay,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      publicToken: crypto.randomBytes(32).toString('hex')
     });
 
-    // Generate empty cells
-    const cells = [];
-    for (const day of timetable.days) {
-      for (let period = 1; period <= periodsPerDay; period++) {
-        cells.push({
-          timetableId: timetable._id,
-          day,
-          period,
-          subject: '',
-          department: 'NONE',
-          editableByRole: 'ALL'
-        });
-      }
-    }
+    const cells = generateCells(timetable._id, timetable.days, periodsPerDay);
+    if (cells.length) await TimetableCell.insertMany(cells, { ordered: true });
 
-    if (cells.length > 0) {
-      await TimetableCell.insertMany(cells, { ordered: true });
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Room timetable created successfully',
-      data: timetable
-    });
-  } catch (error) {
-    console.error('Create timetable error:', error);
-    
-    // Handle duplicate key error
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: 'Timetable with this room name and class already exists'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
+    res.status(201).json({ success: true, message: 'Timetable created successfully', data: timetable });
+  } catch (err) {
+    console.error('Create timetable error:', err);
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, message: 'Room name already exists' });
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
-/**
- * ===============================
- * GET ALL TIMETABLES
- * ===============================
- * All users (view-only)
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// COPY — SUPER_ADMIN only (Feature 2)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.copyTimetable = async (req, res) => {
+  try {
+    if (req.user.role !== 'SUPER_ADMIN')
+      return res.status(403).json({ success: false, message: 'Only Super Admin can copy timetables' });
+
+    const { id } = req.params;
+    const { newRoomName } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: 'Invalid timetable ID' });
+    if (!newRoomName?.trim())
+      return res.status(400).json({ success: false, message: 'New room name is required' });
+
+    const source = await Timetable.findById(id).lean();
+    if (!source) return res.status(404).json({ success: false, message: 'Source timetable not found' });
+
+    if (await Timetable.findOne({ roomName: newRoomName.trim() }))
+      return res.status(409).json({ success: false, message: 'A timetable with that room name already exists' });
+
+    const copy = await Timetable.create({
+      roomName: newRoomName.trim(),
+      days: source.days,
+      periodsPerDay: source.periodsPerDay,
+      createdBy: req.user._id,
+      publicToken: crypto.randomBytes(32).toString('hex')
+    });
+
+    const cells = generateCells(copy._id, copy.days, copy.periodsPerDay);
+    if (cells.length) await TimetableCell.insertMany(cells, { ordered: true });
+
+    res.status(201).json({ success: true, message: `Timetable copied to "${newRoomName}"`, data: copy });
+  } catch (err) {
+    console.error('Copy timetable error:', err);
+    if (err.code === 11000)
+      return res.status(409).json({ success: false, message: 'Room name already exists' });
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET ALL — authenticated users (with progress stats)
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getTimetables = async (req, res) => {
   try {
     const timetables = await Timetable.find({})
@@ -110,225 +107,202 @@ exports.getTimetables = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.status(200).json({
-      success: true,
-      count: timetables.length,
-      data: timetables || []
-    });
-  } catch (error) {
-    console.error('Get timetables error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error',
-      data: []
-    });
+    const enriched = await enrichWithCellStats(timetables); // filledCells + totalCells
+
+    res.status(200).json({ success: true, count: enriched.length, data: enriched });
+  } catch (err) {
+    console.error('Get timetables error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error', data: [] });
   }
 };
 
-/**
- * ===============================
- * GET SINGLE TIMETABLE + CELLS
- * ===============================
- * All users (view-only)
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// GET ONE + CELLS — authenticated users
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getTimetable = async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid timetable ID'
-      });
-    }
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: 'Invalid timetable ID' });
 
     const timetable = await Timetable.findById(id)
       .populate('createdBy', 'name role department')
       .lean();
-
-    if (!timetable) {
-      return res.status(404).json({
-        success: false,
-        message: 'Timetable not found'
-      });
-    }
+    if (!timetable) return res.status(404).json({ success: false, message: 'Timetable not found' });
 
     const cells = await TimetableCell.find({ timetableId: id })
       .populate('history.editedBy', 'name role')
       .sort({ day: 1, period: 1 })
       .lean();
 
-    res.status(200).json({
-      success: true,
-      data: { 
-        timetable, 
-        cells: cells || [] 
-      }
-    });
-  } catch (error) {
-    console.error('Get timetable error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
+    res.status(200).json({ success: true, data: { timetable, cells: cells || [] } });
+  } catch (err) {
+    console.error('Get timetable error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
-/**
- * ===============================
- * UPDATE CELL (CELL-LEVEL RBAC)
- * ===============================
- * Department Admin only
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// GET BY PUBLIC TOKEN — no auth (Feature 4)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getPublicTimetable = async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
+
+    const timetable = await Timetable.findOne({ publicToken: token })
+      .populate('createdBy', 'name department')
+      .lean();
+    if (!timetable) return res.status(404).json({ success: false, message: 'Timetable not found or link is invalid' });
+
+    const cells = await TimetableCell.find({ timetableId: timetable._id })
+      .select('day period subject department')
+      .sort({ day: 1, period: 1 })
+      .lean();
+
+    res.status(200).json({ success: true, data: { timetable, cells: cells || [] } });
+  } catch (err) {
+    console.error('Get public timetable error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE CELL — ADMIN_* only (clash detection + activity log)
+// ─────────────────────────────────────────────────────────────────────────────
 exports.updateCell = async (req, res) => {
   try {
     const { cellId } = req.params;
     const { subject, department } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(cellId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid cell ID'
-      });
-    }
+    if (!mongoose.Types.ObjectId.isValid(cellId))
+      return res.status(400).json({ success: false, message: 'Invalid cell ID' });
 
     const cell = await TimetableCell.findById(cellId);
+    if (!cell) return res.status(404).json({ success: false, message: 'Cell not found' });
 
-    if (!cell) {
-      return res.status(404).json({
-        success: false,
-        message: 'Cell not found'
-      });
+    if (req.user.role === 'SUPER_ADMIN')
+      return res.status(403).json({ success: false, message: 'Super admin cannot edit timetable cells' });
+    if (req.user.role === 'USER')
+      return res.status(403).json({ success: false, message: 'Read-only users cannot edit timetable cells' });
+
+    if (cell.department !== 'NONE' && cell.department !== req.user.department)
+      return res.status(403).json({ success: false, message: `Only ${cell.department} admin can edit this cell` });
+
+    const effectiveDept = department || cell.department;
+    if (cell.department === 'NONE' && effectiveDept !== 'NONE' && effectiveDept !== req.user.department)
+      return res.status(403).json({ success: false, message: 'You can only assign cells to your own department' });
+
+    // ── Feature 1: Clash Detection ────────────────────────────────────────────
+    let hasClash = false;
+    let clashRoom = null;
+    const newSubject = typeof subject === 'string' ? subject.trim() : '';
+    const deptToCheck = effectiveDept !== 'NONE' ? effectiveDept : null;
+
+    if (deptToCheck && newSubject) {
+      const clashCell = await TimetableCell.findOne({
+        timetableId: { $ne: cell.timetableId },
+        day: cell.day,
+        period: cell.period,
+        department: deptToCheck,
+        subject: { $nin: ['', null] },
+        isDeleted: { $ne: true }
+      }).populate({ path: 'timetableId', select: 'roomName', match: { isDeleted: { $ne: true } } });
+
+      if (clashCell?.timetableId) {
+        hasClash = true;
+        clashRoom = clashCell.timetableId.roomName || 'another room';
+      }
     }
 
-    // Super admin: view-only
-    if (req.user.role === 'SUPER_ADMIN') {
-      return res.status(403).json({
-        success: false,
-        message: 'Super admin cannot edit timetable cells'
-      });
-    }
-
-    // Normal user: view-only
-    if (req.user.role === 'USER') {
-      return res.status(403).json({
-        success: false,
-        message: 'Read-only users cannot edit timetable cells'
-      });
-    }
-
-    /**
-     * CELL OWNERSHIP RULES
-     */
-
-    // If cell already owned → only same department can edit
-    if (
-      cell.department !== 'NONE' &&
-      cell.department !== req.user.department
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: `Only ${cell.department} admin can edit this cell`
-      });
-    }
-
-    // First-time assignment → admin must own that department
-    if (
-      cell.department === 'NONE' &&
-      department &&
-      department !== 'NONE' &&
-      department !== req.user.department
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only assign cells to your own department'
-      });
-    }
-
-    // Save history (max 2 handled in model)
-    if (subject !== undefined && subject !== cell.subject) {
+    // ── Save history ──────────────────────────────────────────────────────────
+    const previousSubject = cell.subject;
+    if (subject !== undefined && subject !== cell.subject)
       cell.addHistory(cell.subject, req.user._id, req.user.name);
-    }
 
-    // Apply updates
-    if (subject !== undefined) {
-      cell.subject = typeof subject === 'string' ? subject.trim() : '';
-    }
-
+    if (subject !== undefined) cell.subject = newSubject;
     if (department) {
-      cell.department = department.trim();
-      cell.editableByRole =
-        department === 'NONE' ? 'ALL' : `ADMIN_${department}`;
+      cell.department   = department.trim();
+      cell.editableByRole = department === 'NONE' ? 'ALL' : `ADMIN_${department}`;
     }
 
     await cell.save();
-
-    // Populate history after save
     await cell.populate('history.editedBy', 'name role');
 
+    // ── Feature 5: Activity Log ───────────────────────────────────────────────
+    if (subject !== undefined) {
+      TimetableLog.create({
+        timetableId:     cell.timetableId,
+        cellId:          cell._id,
+        day:             cell.day,
+        period:          cell.period,
+        editedBy:        req.user._id,
+        editedByName:    req.user.name,
+        editedByDept:    req.user.department || 'NONE',
+        previousSubject: previousSubject || '',
+        newSubject:      cell.subject,
+        department:      cell.department,
+        action:          cell.subject ? 'UPDATE' : 'CLEAR'
+      }).catch(err => console.error('Activity log write error:', err)); // non-blocking
+    }
+
     res.status(200).json({
-      success: true,
-      message: 'Cell updated successfully',
-      data: cell
+      success:  true,
+      message:  'Cell updated successfully',
+      hasClash,
+      clashRoom,
+      data:     cell
     });
-  } catch (error) {
-    console.error('Update cell error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
+  } catch (err) {
+    console.error('Update cell error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };
 
-/**
- * ===============================
- * DELETE TIMETABLE
- * ===============================
- * Admin who created it OR Super Admin
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// GET ACTIVITY LOG (Feature 5)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getActivityLog = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: 'Invalid timetable ID' });
+
+    const logs = await TimetableLog.find({ timetableId: id })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    res.status(200).json({ success: true, count: logs.length, data: logs });
+  } catch (err) {
+    console.error('Get activity log error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE — SUPER_ADMIN only
+// ─────────────────────────────────────────────────────────────────────────────
 exports.deleteTimetable = async (req, res) => {
   try {
     const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid timetable ID'
-      });
-    }
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ success: false, message: 'Invalid timetable ID' });
+    if (req.user.role !== 'SUPER_ADMIN')
+      return res.status(403).json({ success: false, message: 'Only Super Admin can delete timetables' });
 
     const timetable = await Timetable.findById(id);
+    if (!timetable) return res.status(404).json({ success: false, message: 'Timetable not found' });
 
-    if (!timetable) {
-      return res.status(404).json({
-        success: false,
-        message: 'Timetable not found'
-      });
-    }
-
-    if (
-      timetable.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'SUPER_ADMIN'
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this timetable'
-      });
-    }
-
-    // Delete cells first, then timetable
-    await TimetableCell.deleteMany({ timetableId: id });
+    await Promise.all([
+      TimetableCell.deleteMany({ timetableId: id }),
+      TimetableLog.deleteMany({ timetableId: id })
+    ]);
     await Timetable.findByIdAndDelete(id);
 
-    res.status(200).json({
-      success: true,
-      message: 'Timetable deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete timetable error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Server error'
-    });
+    res.status(200).json({ success: true, message: 'Timetable deleted successfully' });
+  } catch (err) {
+    console.error('Delete timetable error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
   }
 };

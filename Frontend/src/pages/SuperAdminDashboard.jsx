@@ -1,522 +1,171 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { superAdminAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { superAdminAPI, timetableAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import ApprovalModal from '../components/ApprovalModal';
+import CreateTimetableModal from '../components/CreateTimeTableModal';
+import CopyTimetableModal from '../components/CopyTimetableModal';
 
-const SuperAdminDashboard = () => {
-  const [stats, setStats] = useState({});
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [activeAdmins, setActiveAdmins] = useState([]);
-  const [disabledAdmins, setDisabledAdmins] = useState([]);
-  const [timetables, setTimetables] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('pending');
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [showApprovalModal, setShowApprovalModal] = useState(false);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-
-      const [statsRes, pendingRes, activeRes, disabledRes, timetableRes] = await Promise.all([
-        superAdminAPI.getStats().catch(() => ({ data: { data: {} } })),
-        superAdminAPI.getPendingRequests().catch(() => ({ data: { data: [] } })),
-        superAdminAPI.getActiveAdmins().catch(() => ({ data: { data: [] } })),
-        superAdminAPI.getDisabledAdmins().catch(() => ({ data: { data: [] } })),
-        superAdminAPI.getAllTimetables().catch(() => ({ data: { data: [] } })),
-      ]);
-
-      setStats(statsRes?.data?.data || {});
-      setPendingRequests(Array.isArray(pendingRes?.data?.data) ? pendingRes.data.data : []);
-      setActiveAdmins(Array.isArray(activeRes?.data?.data) ? activeRes.data.data : []);
-      setDisabledAdmins(Array.isArray(disabledRes?.data?.data) ? disabledRes.data.data : []);
-      setTimetables(Array.isArray(timetableRes?.data?.data) ? timetableRes.data.data : []);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-      toast.error(error?.response?.data?.message || 'Failed to fetch data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApprove = (user) => {
-    if (!user?._id) {
-      toast.error('Invalid user data');
-      return;
-    }
-    setSelectedUser(user);
-    setShowApprovalModal(true);
-  };
-
-  const handleReject = async (userId) => {
-    if (!userId) {
-      toast.error('Invalid user ID');
-      return;
-    }
-
-    if (!window.confirm('Are you sure you want to reject this user?')) return;
-
-    try {
-      await superAdminAPI.rejectUser(userId);
-      toast.success('User rejected successfully');
-      fetchData();
-    } catch (error) {
-      console.error('Failed to reject user:', error);
-      toast.error(error?.response?.data?.message || 'Failed to reject user');
-    }
-  };
-
-  const handleToggleStatus = async (userId) => {
-    if (!userId) {
-      toast.error('Invalid user ID');
-      return;
-    }
-
-    try {
-      const response = await superAdminAPI.toggleAdminStatus(userId);
-      toast.success(response?.data?.message || 'Admin status updated successfully');
-      fetchData();
-    } catch (error) {
-      console.error('Failed to update admin status:', error);
-      toast.error(error?.response?.data?.message || 'Failed to update admin status');
-    }
-  };
-
-  const StatCard = ({ title, value, icon, gradient, iconBg, trend }) => (
-    <motion.div
-      whileHover={{ y: -6, scale: 1.02 }}
-      transition={{ type: "spring", stiffness: 300 }}
-      className="relative bg-white rounded-2xl shadow-lg border border-slate-200 p-4 sm:p-6 overflow-hidden group"
-    >
-      {/* Background gradient overlay */}
-      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-300`}></div>
-      
-      <div className="relative flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-xs sm:text-sm font-semibold text-slate-600 uppercase tracking-wide mb-1 sm:mb-2">{title}</p>
-          <h3 className="text-2xl sm:text-4xl font-bold text-slate-900 mb-1">{value}</h3>
-          {trend && (
-            <p className="text-xs text-slate-500 flex items-center gap-1">
-              <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-              {trend}
-            </p>
-          )}
-        </div>
-        <motion.div
-          whileHover={{ rotate: 360, scale: 1.1 }}
-          transition={{ duration: 0.6 }}
-          className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl ${iconBg} bg-gradient-to-br shadow-lg flex items-center justify-center flex-shrink-0`}
-        >
-          {icon}
-        </motion.div>
-      </div>
-
-      {/* Decorative bottom bar */}
-      <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${gradient}`}></div>
-    </motion.div>
-  );
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
-        <div className="text-center">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 sm:h-20 sm:w-20 border-4 border-slate-200 border-t-primary-600 mx-auto mb-4 sm:mb-6"></div>
-            <div className="absolute inset-0 rounded-full h-16 w-16 sm:h-20 sm:w-20 border-4 border-transparent border-t-primary-400 animate-ping mx-auto opacity-20"></div>
-          </div>
-          <p className="text-slate-700 font-semibold text-base sm:text-lg">Loading Dashboard...</p>
-          <p className="text-slate-500 text-xs sm:text-sm mt-1">Please wait a moment</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* Header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="w-full sm:w-auto">
-              <div className="flex items-center gap-2 sm:gap-3 mb-2">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-lg flex-shrink-0">
-                  <svg className="w-5 h-5 sm:w-7 sm:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-                  Super Admin Dashboard
-                </h1>
-              </div>
-              <p className="text-slate-600 text-sm sm:text-base ml-0 sm:ml-14 lg:ml-15">Manage users, monitor activity, and oversee system operations</p>
-            </div>
-            
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-3 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-xl sm:rounded-2xl border border-emerald-200"
-            >
-              <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span className="text-xs sm:text-sm font-semibold text-emerald-700">System Online</span>
-            </motion.div>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-10">
-          <StatCard
-            title="Pending Requests"
-            value={stats.pendingRequests || 0}
-            gradient="from-amber-400 to-orange-500"
-            iconBg="from-amber-100 to-amber-200"
-            trend="Awaiting review"
-            icon={
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            }
-          />
-          <StatCard
-            title="Active Admins"
-            value={stats.activeUsers || 0}
-            gradient="from-emerald-400 to-green-500"
-            iconBg="from-emerald-100 to-emerald-200"
-            trend="Currently active"
-            icon={
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            }
-          />
-          <StatCard
-            title="Disabled Admins"
-            value={stats.disabledUsers || 0}
-            gradient="from-red-400 to-rose-500"
-            iconBg="from-red-100 to-red-200"
-            trend="Temporarily disabled"
-            icon={
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-              </svg>
-            }
-          />
-          <StatCard
-            title="Total Timetables"
-            value={stats.totalTimetables || timetables.length}
-            gradient="from-blue-400 to-indigo-500"
-            iconBg="from-blue-100 to-blue-200"
-            trend="In the system"
-            icon={
-              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            }
-          />
-        </div>
-
-        {/* Tabs Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden"
-        >
-          {/* Tab Navigation */}
-          <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white overflow-x-auto">
-            <div className="flex gap-1 px-3 sm:px-6 py-2 min-w-max">
-              {[
-                {
-                  id: 'pending',
-                  label: 'Pending',
-                  fullLabel: 'Pending Requests',
-                  count: pendingRequests.length,
-                  icon: (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ),
-                  color: 'text-amber-600',
-                  activeBg: 'bg-amber-50',
-                },
-                {
-                  id: 'active',
-                  label: 'Active',
-                  fullLabel: 'Active Admins',
-                  count: activeAdmins.length,
-                  icon: (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  ),
-                  color: 'text-emerald-600',
-                  activeBg: 'bg-emerald-50',
-                },
-                {
-                  id: 'disabled',
-                  label: 'Disabled',
-                  fullLabel: 'Disabled Admins',
-                  count: disabledAdmins.length,
-                  icon: (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                    </svg>
-                  ),
-                  color: 'text-red-600',
-                  activeBg: 'bg-red-50',
-                },
-                {
-                  id: 'timetables',
-                  label: 'Timetables',
-                  fullLabel: 'Timetables',
-                  count: timetables.length,
-                  icon: (
-                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  ),
-                  color: 'text-blue-600',
-                  activeBg: 'bg-blue-50',
-                },
-              ].map((tab) => (
-                <motion.button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-3 sm:py-4 font-semibold text-xs sm:text-sm rounded-t-xl sm:rounded-t-2xl transition-all ${
-                    activeTab === tab.id
-                      ? `${tab.activeBg} ${tab.color} shadow-sm`
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <span className={activeTab === tab.id ? tab.color : ''}>{tab.icon}</span>
-                  <span className="hidden sm:inline">{tab.fullLabel}</span>
-                  <span className="sm:hidden">{tab.label}</span>
-                  <span
-                    className={`px-2 sm:px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      activeTab === tab.id
-                        ? `${tab.color} bg-white`
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {tab.count}
-                  </span>
-                  {activeTab === tab.id && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${
-                        tab.id === 'pending' ? 'from-amber-400 to-orange-500' :
-                        tab.id === 'active' ? 'from-emerald-400 to-green-500' :
-                        tab.id === 'disabled' ? 'from-red-400 to-rose-500' :
-                        'from-blue-400 to-indigo-500'
-                      }`}
-                    />
-                  )}
-                </motion.button>
-              ))}
-            </div>
-          </div>
-
-          {/* Tab Content */}
-          <div className="p-4 sm:p-6 lg:p-8">
-            <AnimatePresence mode="wait">
-              {activeTab === 'pending' && (
-                <motion.div
-                  key="pending"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {!Array.isArray(pendingRequests) || pendingRequests.length === 0 ? (
-                    <EmptyState
-                      icon={
-                        <svg className="w-12 h-12 sm:w-16 sm:h-16 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      }
-                      title="No Pending Requests"
-                      description="All user requests have been processed. New requests will appear here."
-                    />
-                  ) : (
-                    <div className="space-y-3 sm:space-y-4">
-                      {pendingRequests.map((user, index) => {
-                        if (!user?._id) return null;
-                        return (
-                          <UserCard
-                            key={user._id}
-                            user={user}
-                            type="pending"
-                            index={index}
-                            onApprove={() => handleApprove(user)}
-                            onReject={() => handleReject(user._id)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {activeTab === 'active' && (
-                <motion.div
-                  key="active"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {!Array.isArray(activeAdmins) || activeAdmins.length === 0 ? (
-                    <EmptyState
-                      icon={
-                        <svg className="w-12 h-12 sm:w-16 sm:h-16 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                      }
-                      title="No Active Admins"
-                      description="There are currently no active administrators in the system."
-                    />
-                  ) : (
-                    <div className="space-y-3 sm:space-y-4">
-                      {activeAdmins.map((user, index) => {
-                        if (!user?._id) return null;
-                        return (
-                          <UserCard
-                            key={user._id}
-                            user={user}
-                            type="active"
-                            index={index}
-                            onToggleStatus={() => handleToggleStatus(user._id)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {activeTab === 'disabled' && (
-                <motion.div
-                  key="disabled"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {!Array.isArray(disabledAdmins) || disabledAdmins.length === 0 ? (
-                    <EmptyState
-                      icon={
-                        <svg className="w-12 h-12 sm:w-16 sm:h-16 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                        </svg>
-                      }
-                      title="No Disabled Admins"
-                      description="All administrators are currently active. Disabled accounts will appear here."
-                    />
-                  ) : (
-                    <div className="space-y-3 sm:space-y-4">
-                      {disabledAdmins.map((user, index) => {
-                        if (!user?._id) return null;
-                        return (
-                          <UserCard
-                            key={user._id}
-                            user={user}
-                            type="disabled"
-                            index={index}
-                            onToggleStatus={() => handleToggleStatus(user._id)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {activeTab === 'timetables' && (
-                <motion.div
-                  key="timetables"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {!Array.isArray(timetables) || timetables.length === 0 ? (
-                    <EmptyState
-                      icon={
-                        <svg className="w-12 h-12 sm:w-16 sm:h-16 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      }
-                      title="No Timetables Found"
-                      description="No timetables have been created yet. They will appear here once created."
-                    />
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                      {timetables.map((tt, index) => {
-                        if (!tt?._id) return null;
-                        return (
-                          <TimetableCard key={tt._id} timetable={tt} index={index} />
-                        );
-                      })}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </div>
-
-      <ApprovalModal
-        isOpen={showApprovalModal}
-        onClose={() => {
-          setShowApprovalModal(false);
-          setSelectedUser(null);
-        }}
-        user={selectedUser}
-        onSuccess={fetchData}
-      />
-    </div>
-  );
+// ─────────────────────────────────────────────────────────────
+// Department colour map
+// ─────────────────────────────────────────────────────────────
+const DEPT_MAP = {
+  CS:  { color: 'text-blue-700',    bg: 'bg-blue-100',    border: 'border-blue-200'    },
+  ECE: { color: 'text-purple-700',  bg: 'bg-purple-100',  border: 'border-purple-200'  },
+  IT:  { color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
+  MNC: { color: 'text-orange-700',  bg: 'bg-orange-100',  border: 'border-orange-200'  },
+  ML:  { color: 'text-pink-700',    bg: 'bg-pink-100',    border: 'border-pink-200'    },
 };
 
+// ─────────────────────────────────────────────────────────────
+// Heatmap colour map
+// ─────────────────────────────────────────────────────────────
+const HEATMAP_COLORS = {
+  CS:   '#3b82f6',
+  ECE:  '#8b5cf6',
+  IT:   '#10b981',
+  MNC:  '#f97316',
+  ML:   '#ec4899',
+  NONE: '#e2e8f0',
+};
+
+// ─────────────────────────────────────────────────────────────
+// EmptyState
+// ─────────────────────────────────────────────────────────────
 const EmptyState = ({ icon, title, description }) => (
   <motion.div
     initial={{ opacity: 0, scale: 0.95 }}
     animate={{ opacity: 1, scale: 1 }}
-    className="text-center py-12 sm:py-16 px-4 sm:px-6"
+    className="text-center py-12 sm:py-16 px-4"
   >
-    <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center">
+    <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center">
       {icon}
     </div>
     <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-2">{title}</h3>
-    <p className="text-sm sm:text-base text-slate-600 max-w-md mx-auto">{description}</p>
+    <p className="text-sm text-slate-500 max-w-md mx-auto">{description}</p>
   </motion.div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// ProgressBar
+// ─────────────────────────────────────────────────────────────
+const ProgressBar = ({ filled = 0, total = 0 }) => {
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+  const color =
+    pct === 100 ? 'bg-emerald-500' :
+    pct >= 67   ? 'bg-blue-500'    :
+    pct >= 34   ? 'bg-amber-400'   : 'bg-red-400';
+  const textColor =
+    pct === 100 ? 'text-emerald-600' :
+    pct >= 67   ? 'text-blue-600'    :
+    pct >= 34   ? 'text-amber-600'   : 'text-red-500';
+
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-xs text-slate-500 mb-1">
+        <span>{filled}/{total} filled</span>
+        <span className={`font-bold ${textColor}`}>{pct}%</span>
+      </div>
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className={`h-full rounded-full ${color}`}
+        />
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// HeatmapGrid
+// ─────────────────────────────────────────────────────────────
+const HeatmapGrid = ({ days = [], periodsPerDay = 0, cellSummary = [] }) => {
+  const lookup = {};
+  cellSummary.forEach(c => { lookup[`${c.day}-${c.period}`] = c.department; });
+
+  if (!days.length || !periodsPerDay) return null;
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs text-slate-400 font-medium mb-1.5 uppercase tracking-wide">Cell Map</p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${periodsPerDay}, 1fr)`,
+          gap: 2,
+        }}
+      >
+        {days.flatMap(day =>
+          Array.from({ length: periodsPerDay }, (_, i) => {
+            const period = i + 1;
+            const dept   = lookup[`${day}-${period}`] || 'NONE';
+            return (
+              <div
+                key={`${day}-${period}`}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 2,
+                  backgroundColor: HEATMAP_COLORS[dept] || HEATMAP_COLORS.NONE,
+                }}
+                title={`${day.slice(0, 3)} P${period}: ${dept}`}
+              />
+            );
+          })
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {Object.entries(HEATMAP_COLORS)
+          .filter(([k]) => k !== 'NONE')
+          .map(([dept, color]) => (
+            <div key={dept} className="flex items-center gap-1">
+              <div style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: color }} />
+              <span className="text-xs text-slate-400">{dept}</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// StatCard
+// ─────────────────────────────────────────────────────────────
+const StatCard = ({ title, value, icon, gradient, iconBg, trend }) => (
+  <motion.div
+    whileHover={{ y: -6, scale: 1.02 }}
+    transition={{ type: 'spring', stiffness: 300 }}
+    className="relative bg-white rounded-2xl shadow-lg border border-slate-200 p-4 sm:p-6 overflow-hidden group"
+  >
+    <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-5 transition-opacity`} />
+    <div className="relative flex items-start justify-between">
+      <div className="flex-1">
+        <p className="text-xs sm:text-sm font-semibold text-slate-600 uppercase tracking-wide mb-1">{title}</p>
+        <h3 className="text-2xl sm:text-4xl font-bold text-slate-900 mb-1">{value}</h3>
+        {trend && <p className="text-xs text-slate-500">{trend}</p>}
+      </div>
+      <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl ${iconBg} bg-gradient-to-br shadow-lg flex items-center justify-center flex-shrink-0`}>
+        {icon}
+      </div>
+    </div>
+    <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${gradient}`} />
+  </motion.div>
+);
+
+// ─────────────────────────────────────────────────────────────
+// UserCard
+// ─────────────────────────────────────────────────────────────
 const UserCard = ({ user, onApprove, onReject, onToggleStatus, type, index }) => {
   if (!user) return null;
 
-  const getDepartmentInfo = (dept) => {
-    const info = {
-      CS: { name: 'Computer Science', color: 'text-blue-700', bg: 'bg-blue-100', border: 'border-blue-200' },
-      ECE: { name: 'Electronics & Comm.', color: 'text-purple-700', bg: 'bg-purple-100', border: 'border-purple-200' },
-      IT: { name: 'Information Tech.', color: 'text-emerald-700', bg: 'bg-emerald-100', border: 'border-emerald-200' },
-      MNC: { name: 'Mathematics & Comp.', color: 'text-orange-700', bg: 'bg-orange-100', border: 'border-orange-200' },
-      ML: { name: 'Machine Learning', color: 'text-pink-700', bg: 'bg-pink-100', border: 'border-pink-200' },
-    };
-    return info[dept] || { name: dept, color: 'text-slate-700', bg: 'bg-slate-100', border: 'border-slate-200' };
-  };
-
-  const deptInfo = user?.department ? getDepartmentInfo(user.department) : null;
+  const di  = user?.department ? DEPT_MAP[user.department] : null;
+  const bar =
+    type === 'pending'  ? 'from-amber-400 to-orange-500'  :
+    type === 'active'   ? 'from-emerald-400 to-green-500' :
+                          'from-red-400 to-rose-500';
 
   return (
     <motion.div
@@ -526,84 +175,62 @@ const UserCard = ({ user, onApprove, onReject, onToggleStatus, type, index }) =>
       whileHover={{ y: -4, scale: 1.01 }}
       className="relative group bg-gradient-to-br from-white to-slate-50 rounded-xl sm:rounded-2xl shadow-md border border-slate-200 hover:shadow-xl transition-all duration-300 overflow-hidden"
     >
-      {/* Decorative gradient bar */}
-      <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${
-        type === 'pending' ? 'from-amber-400 to-orange-500' :
-        type === 'active' ? 'from-emerald-400 to-green-500' :
-        'from-red-400 to-rose-500'
-      }`}></div>
+      <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${bar}`} />
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 sm:p-6 gap-4">
-        <div className="flex items-center gap-3 sm:gap-5 w-full sm:w-auto">
-          {/* Avatar */}
-          <motion.div
-            whileHover={{ rotate: 360, scale: 1.1 }}
-            transition={{ duration: 0.6 }}
-            className="relative flex-shrink-0"
-          >
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl sm:rounded-2xl flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-lg">
+        {/* Avatar + info */}
+        <div className="flex items-center gap-4 w-full sm:w-auto">
+          <div className="relative flex-shrink-0">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-indigo-500 to-indigo-700 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg">
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             {type === 'active' && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-emerald-500 rounded-full border-2 border-white shadow-sm"></div>
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white" />
             )}
             {type === 'disabled' && (
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 rounded-full border-2 border-white shadow-sm flex items-center justify-center">
-                <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center">
+                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </div>
             )}
-          </motion.div>
+          </div>
 
-          {/* User Info */}
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-slate-900 text-base sm:text-lg mb-1 truncate">{user?.name || 'Unknown User'}</h3>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-              <p className="text-xs sm:text-sm text-slate-600 flex items-center gap-1.5 truncate">
-                <svg className="w-3 h-3 sm:w-4 sm:h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span className="truncate">{user?.email || 'No email'}</span>
-              </p>
-              {deptInfo && (
-                <>
-                  <div className="hidden sm:block w-1 h-1 rounded-full bg-slate-300"></div>
-                  <span className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg text-xs font-bold border ${deptInfo.bg} ${deptInfo.color} ${deptInfo.border}`}>
-                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                    <span className="hidden sm:inline">{deptInfo.name}</span>
-                    <span className="sm:hidden">{user.department}</span>
-                  </span>
-                </>
+            <h3 className="font-bold text-slate-900 text-base truncate">{user?.name || 'Unknown'}</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mt-0.5">
+              <p className="text-xs text-slate-500 truncate">{user?.email || 'No email'}</p>
+              {di && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold border ${di.bg} ${di.color} ${di.border}`}>
+                  {user.department}
+                </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
+        {/* Action buttons */}
+        <div className="flex gap-2 w-full sm:w-auto">
           {type === 'pending' && (
             <>
               <motion.button
-                whileHover={{ scale: 1.05, y: -2 }}
+                whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={onApprove}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-lg sm:rounded-xl hover:from-emerald-700 hover:to-emerald-800 text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-xl text-xs font-semibold shadow-md"
               >
-                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
                 Approve
               </motion.button>
               <motion.button
-                whileHover={{ scale: 1.05, y: -2 }}
+                whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={onReject}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg sm:rounded-xl hover:from-red-700 hover:to-red-800 text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl text-xs font-semibold shadow-md"
               >
-                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                 </svg>
                 Reject
@@ -613,26 +240,28 @@ const UserCard = ({ user, onApprove, onReject, onToggleStatus, type, index }) =>
 
           {(type === 'active' || type === 'disabled') && (
             <motion.button
-              whileHover={{ scale: 1.05, y: -2 }}
+              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={onToggleStatus}
-              className={`w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all ${
+              className={`w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-md ${
                 type === 'active'
-                  ? 'bg-gradient-to-r from-red-600 to-red-700 text-white hover:from-red-700 hover:to-red-800'
-                  : 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white hover:from-emerald-700 hover:to-emerald-800'
+                  ? 'bg-gradient-to-r from-red-600 to-red-700 text-white'
+                  : 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white'
               }`}
             >
               {type === 'active' ? (
                 <>
-                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                   </svg>
                   Disable
                 </>
               ) : (
                 <>
-                  <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Enable
                 </>
@@ -645,7 +274,11 @@ const UserCard = ({ user, onApprove, onReject, onToggleStatus, type, index }) =>
   );
 };
 
-const TimetableCard = ({ timetable, index }) => {
+// ─────────────────────────────────────────────────────────────
+// TimetableCard
+// ─────────────────────────────────────────────────────────────
+const TimetableCard = ({ timetable, index, onDelete, onCopy }) => {
+  const navigate = useNavigate();
   if (!timetable) return null;
 
   return (
@@ -653,59 +286,691 @@ const TimetableCard = ({ timetable, index }) => {
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.05 }}
-      whileHover={{ y: -4, scale: 1.02 }}
-      className="relative group bg-gradient-to-br from-white to-slate-50 rounded-xl sm:rounded-2xl shadow-md border border-slate-200 hover:shadow-xl transition-all duration-300 overflow-hidden p-4 sm:p-6"
+      whileHover={{ y: -4, scale: 1.01 }}
+      className="relative group bg-gradient-to-br from-white to-slate-50 rounded-xl sm:rounded-2xl shadow-md border border-slate-200 hover:shadow-xl transition-all duration-300 overflow-hidden p-5 cursor-pointer"
+      onClick={() => navigate(`/timetable/${timetable._id}`)}
     >
-      {/* Decorative gradient bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-400 to-indigo-500"></div>
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-400 to-indigo-500" />
 
-      {/* Icon */}
-      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center mb-3 sm:mb-4 shadow-sm">
-        <svg className="w-5 h-5 sm:w-6 sm:h-6 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
+      {/* Header row */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center shadow-sm">
+          <svg className="w-5 h-5 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+
+        {/* Hover action buttons */}
+        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={e => { e.stopPropagation(); onCopy(); }}
+            className="w-9 h-9 bg-indigo-100 hover:bg-indigo-500 rounded-xl flex items-center justify-center transition-all group/cp"
+            title="Copy timetable structure"
+          >
+            <svg className="w-4 h-4 text-indigo-600 group-hover/cp:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            className="w-9 h-9 bg-slate-100 hover:bg-red-500 rounded-xl flex items-center justify-center transition-all group/del"
+            title="Delete timetable"
+          >
+            <svg className="w-4 h-4 text-slate-500 group-hover/del:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </motion.button>
+        </div>
       </div>
 
-      {/* Content */}
-      <div className="mb-2 sm:mb-3 flex items-center gap-2 flex-wrap">
-  <h3 className="font-semibold text-slate-900 text-base sm:text-lg truncate">
-    {timetable.className || 'Untitled Timetable'}
-  </h3>
+      <h3 className="font-bold text-slate-900 text-base sm:text-lg mb-2 truncate">
+        {timetable.roomName || 'Unknown Room'}
+      </h3>
 
-  <span className="text-slate-400 text-sm font-medium">
-    • Room {timetable.roomName || 'N/A'}
-  </span>
-</div>
+      <ProgressBar filled={timetable.filledCells || 0} total={timetable.totalCells || 0} />
 
-      
-      <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm text-slate-600">
+      {/* Stats row */}
+      <div className="flex items-center gap-4 text-sm text-slate-600 mb-2">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
           <div>
-            <p className="text-xs text-slate-500 font-medium">Days</p>
-            <p className="font-bold text-slate-900">{Array.isArray(timetable.days) ? timetable.days.length : timetable.days || 0}</p>
+            <p className="text-xs text-slate-400 font-medium">Days</p>
+            <p className="font-bold text-slate-900">{Array.isArray(timetable.days) ? timetable.days.length : 0}</p>
           </div>
         </div>
-        
-        <div className="w-px h-8 sm:h-10 bg-slate-200"></div>
-        
+
+        <div className="w-px h-8 bg-slate-200" />
+
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+            <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <p className="text-xs text-slate-500 font-medium">Periods</p>
+            <p className="text-xs text-slate-400 font-medium">Periods</p>
             <p className="font-bold text-slate-900">{timetable.periodsPerDay || 0}</p>
           </div>
         </div>
       </div>
+
+      <HeatmapGrid
+        days={timetable.days || []}
+        periodsPerDay={timetable.periodsPerDay || 0}
+        cellSummary={timetable.cellSummary || []}
+      />
     </motion.div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// SuperAdminDashboard — main component
+// ─────────────────────────────────────────────────────────────
+const SuperAdminDashboard = () => {
+  const navigate = useNavigate();
+
+  const [stats,           setStats]           = useState({});
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [activeAdmins,    setActiveAdmins]    = useState([]);
+  const [disabledAdmins,  setDisabledAdmins]  = useState([]);
+  const [timetables,      setTimetables]      = useState([]);
+  const [loading,         setLoading]         = useState(true);
+  const [activeTab,       setActiveTab]       = useState('pending');
+  const [selectedUser,    setSelectedUser]    = useState(null);
+  const [ttSearch,        setTtSearch]        = useState('');
+
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [showCreateModal,   setShowCreateModal]   = useState(false);
+  const [copySource,        setCopySource]        = useState(null);
+  const [showCopyModal,     setShowCopyModal]     = useState(false);
+
+  // Derived — filtered timetable list
+  const filteredTimetables = timetables.filter(t =>
+    t?.roomName?.toLowerCase().includes(ttSearch.toLowerCase())
+  );
+
+  useEffect(() => { fetchData(); }, []);
+
+  // ── Data fetching ──────────────────────────────────────────
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [statsRes, pendingRes, activeRes, disabledRes, ttRes] = await Promise.all([
+        superAdminAPI.getStats().catch(()          => ({ data: { data: {} } })),
+        superAdminAPI.getPendingRequests().catch(() => ({ data: { data: [] } })),
+        superAdminAPI.getActiveAdmins().catch(()   => ({ data: { data: [] } })),
+        superAdminAPI.getDisabledAdmins().catch(() => ({ data: { data: [] } })),
+        superAdminAPI.getAllTimetables().catch(()  => ({ data: { data: [] } })),
+      ]);
+      setStats(statsRes?.data?.data || {});
+      setPendingRequests(Array.isArray(pendingRes?.data?.data)  ? pendingRes.data.data  : []);
+      setActiveAdmins(Array.isArray(activeRes?.data?.data)      ? activeRes.data.data   : []);
+      setDisabledAdmins(Array.isArray(disabledRes?.data?.data)  ? disabledRes.data.data : []);
+      setTimetables(Array.isArray(ttRes?.data?.data)            ? ttRes.data.data       : []);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Handlers ───────────────────────────────────────────────
+  const handleApprove = (user) => {
+    if (!user?._id) { toast.error('Invalid user'); return; }
+    setSelectedUser(user);
+    setShowApprovalModal(true);
+  };
+
+  const handleReject = async (id) => {
+    if (!id || !window.confirm('Reject and delete this user?')) return;
+    try {
+      await superAdminAPI.rejectUser(id);
+      toast.success('User rejected');
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to reject');
+    }
+  };
+
+  const handleToggleStatus = async (id) => {
+    if (!id) return;
+    try {
+      const res = await superAdminAPI.toggleAdminStatus(id);
+      toast.success(res?.data?.message || 'Status updated');
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to update status');
+    }
+  };
+
+  const handleDeleteTimetable = async (id, roomName) => {
+    if (!id || !window.confirm(`Delete timetable for "${roomName}"? This cannot be undone.`)) return;
+    try {
+      await timetableAPI.delete(id);
+      toast.success('Timetable deleted');
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to delete');
+    }
+  };
+
+  const handleCopy = (id, roomName) => {
+    setCopySource({ id, roomName });
+    setShowCopyModal(true);
+  };
+
+  // ── Loading screen ─────────────────────────────────────────
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-4 border-slate-200 border-t-indigo-600 mx-auto mb-4" />
+        <p className="text-slate-700 font-semibold">Loading Dashboard…</p>
+      </div>
+    </div>
+  );
+
+  // ── Tab config ─────────────────────────────────────────────
+  const tabs = [
+    {
+      id: 'pending',
+      label: 'Pending',
+      fullLabel: 'Pending Requests',
+      count: pendingRequests.length,
+      color: 'text-amber-600',
+      activeBg: 'bg-amber-50',
+      bar: 'from-amber-400 to-orange-500',
+      icon: (
+        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'active',
+      label: 'Active',
+      fullLabel: 'Active Admins',
+      count: activeAdmins.length,
+      color: 'text-emerald-600',
+      activeBg: 'bg-emerald-50',
+      bar: 'from-emerald-400 to-green-500',
+      icon: (
+        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'disabled',
+      label: 'Disabled',
+      fullLabel: 'Disabled Admins',
+      count: disabledAdmins.length,
+      color: 'text-red-600',
+      activeBg: 'bg-red-50',
+      bar: 'from-red-400 to-rose-500',
+      icon: (
+        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+        </svg>
+      ),
+    },
+    {
+      id: 'timetables',
+      label: 'Timetables',
+      fullLabel: 'Timetables',
+      count: timetables.length,
+      color: 'text-blue-600',
+      activeBg: 'bg-blue-50',
+      bar: 'from-blue-400 to-indigo-500',
+      icon: (
+        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+      ),
+    },
+  ];
+
+  // ── Render ─────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+
+      {/* ── Sticky Header ── */}
+      <div className="bg-white/80 backdrop-blur-xl border-b border-slate-200/60 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-lg">
+                  <svg className="w-5 h-5 sm:w-7 sm:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+                  Super Admin Dashboard
+                </h1>
+              </div>
+              <p className="text-slate-500 text-sm sm:text-base ml-0 sm:ml-14">
+                Manage users, timetables, and system operations
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <motion.button
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                New Timetable
+              </motion.button>
+
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-sm font-semibold text-emerald-700">Online</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Page body ── */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
+
+        {/* Stat cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+          <StatCard
+            title="Pending Requests"
+            value={stats.pendingRequests ?? pendingRequests.length}
+            gradient="from-amber-400 to-orange-500"
+            iconBg="from-amber-100 to-amber-200"
+            trend="Awaiting review"
+            icon={
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+          />
+          <StatCard
+            title="Active Admins"
+            value={stats.activeUsers ?? activeAdmins.length}
+            gradient="from-emerald-400 to-green-500"
+            iconBg="from-emerald-100 to-emerald-200"
+            trend="Currently active"
+            icon={
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+          />
+          <StatCard
+            title="Disabled Admins"
+            value={stats.disabledUsers ?? disabledAdmins.length}
+            gradient="from-red-400 to-rose-500"
+            iconBg="from-red-100 to-red-200"
+            trend="Temporarily disabled"
+            icon={
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            }
+          />
+          <StatCard
+            title="Total Timetables"
+            value={stats.totalTimetables ?? timetables.length}
+            gradient="from-blue-400 to-indigo-500"
+            iconBg="from-blue-100 to-blue-200"
+            trend="In the system"
+            icon={
+              <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            }
+          />
+        </div>
+
+        {/* Tab panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 overflow-hidden"
+        >
+          {/* Tab nav */}
+          <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white overflow-x-auto">
+            <div className="flex gap-1 px-3 sm:px-6 py-2 min-w-max">
+              {tabs.map(tab => (
+                <motion.button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={`relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-3 sm:py-4 font-semibold text-xs sm:text-sm rounded-t-xl transition-all ${
+                    activeTab === tab.id
+                      ? `${tab.activeBg} ${tab.color} shadow-sm`
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <span className={activeTab === tab.id ? tab.color : ''}>{tab.icon}</span>
+                  <span className="hidden sm:inline">{tab.fullLabel}</span>
+                  <span className="sm:hidden">{tab.label}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                    activeTab === tab.id ? `${tab.color} bg-white` : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {tab.count}
+                  </span>
+                  {activeTab === tab.id && (
+                    <motion.div
+                      layoutId="saTab"
+                      className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${tab.bar}`}
+                    />
+                  )}
+                </motion.button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tab content */}
+          <div className="p-4 sm:p-6 lg:p-8">
+            <AnimatePresence mode="wait">
+
+              {/* ── Pending Requests ── */}
+              {activeTab === 'pending' && (
+                <motion.div
+                  key="pending"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {!pendingRequests.length ? (
+                    <EmptyState
+                      title="No Pending Requests"
+                      description="All user requests have been processed."
+                      icon={
+                        <svg className="w-12 h-12 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      }
+                    />
+                  ) : (
+                    <div className="space-y-4">
+                      {pendingRequests.map((u, i) =>
+                        u?._id && (
+                          <UserCard
+                            key={u._id}
+                            user={u}
+                            type="pending"
+                            index={i}
+                            onApprove={() => handleApprove(u)}
+                            onReject={() => handleReject(u._id)}
+                          />
+                        )
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ── Active Admins ── */}
+              {activeTab === 'active' && (
+                <motion.div
+                  key="active"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {!activeAdmins.length ? (
+                    <EmptyState
+                      title="No Active Admins"
+                      description="There are currently no active administrators."
+                      icon={
+                        <svg className="w-12 h-12 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                      }
+                    />
+                  ) : (
+                    <div className="space-y-4">
+                      {activeAdmins.map((u, i) =>
+                        u?._id && (
+                          <UserCard
+                            key={u._id}
+                            user={u}
+                            type="active"
+                            index={i}
+                            onToggleStatus={() => handleToggleStatus(u._id)}
+                          />
+                        )
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ── Disabled Admins ── */}
+              {activeTab === 'disabled' && (
+                <motion.div
+                  key="disabled"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {!disabledAdmins.length ? (
+                    <EmptyState
+                      title="No Disabled Admins"
+                      description="All administrators are currently active."
+                      icon={
+                        <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        </svg>
+                      }
+                    />
+                  ) : (
+                    <div className="space-y-4">
+                      {disabledAdmins.map((u, i) =>
+                        u?._id && (
+                          <UserCard
+                            key={u._id}
+                            user={u}
+                            type="disabled"
+                            index={i}
+                            onToggleStatus={() => handleToggleStatus(u._id)}
+                          />
+                        )
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* ── Timetables ── */}
+              {activeTab === 'timetables' && (
+                <motion.div
+                  key="timetables"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {/* Top bar: count + search + new button */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                    <p className="text-sm text-slate-500 flex-shrink-0">
+                      {filteredTimetables.length === timetables.length
+                        ? `${timetables.length} timetable${timetables.length !== 1 ? 's' : ''} in the system`
+                        : `${filteredTimetables.length} of ${timetables.length} timetables`}
+                    </p>
+
+                    <div className="flex items-center gap-2 flex-1 sm:max-w-xs">
+                      {/* Search input */}
+                      <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <svg
+                            className="w-4 h-4 text-slate-400"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                            />
+                          </svg>
+                        </div>
+                        <input
+                          type="text"
+                          value={ttSearch}
+                          onChange={e => setTtSearch(e.target.value)}
+                          placeholder="Search by room name…"
+                          className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                        />
+                        {ttSearch && (
+                          <button
+                            onClick={() => setTtSearch('')}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                          >
+                            <svg
+                              className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* New timetable button */}
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setShowCreateModal(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-semibold rounded-xl shadow-md text-sm flex-shrink-0"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="hidden sm:inline">New</span>
+                      </motion.button>
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  {!timetables.length ? (
+                    <EmptyState
+                      title="No Timetables Found"
+                      description="Create your first timetable using the button above."
+                      icon={
+                        <svg className="w-12 h-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      }
+                    />
+                  ) : filteredTimetables.length === 0 ? (
+                    /* No search match */
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="text-center py-12 px-4"
+                    >
+                      <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      </div>
+                      <h3 className="font-bold text-slate-900 mb-1">
+                        No rooms match &ldquo;{ttSearch}&rdquo;
+                      </h3>
+                      <p className="text-sm text-slate-500 mb-4">Try a different room name.</p>
+                      <button
+                        onClick={() => setTtSearch('')}
+                        className="text-sm text-indigo-600 font-semibold hover:underline"
+                      >
+                        Clear search
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <AnimatePresence>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredTimetables.map((tt, i) =>
+                          tt?._id && (
+                            <TimetableCard
+                              key={tt._id}
+                              timetable={tt}
+                              index={i}
+                              onDelete={() => handleDeleteTimetable(tt._id, tt.roomName)}
+                              onCopy={() => handleCopy(tt._id, tt.roomName)}
+                            />
+                          )
+                        )}
+                      </div>
+                    </AnimatePresence>
+                  )}
+                </motion.div>
+              )}
+
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* ── Modals ── */}
+      <ApprovalModal
+        isOpen={showApprovalModal}
+        onClose={() => { setShowApprovalModal(false); setSelectedUser(null); }}
+        user={selectedUser}
+        onSuccess={() => { setShowApprovalModal(false); setSelectedUser(null); fetchData(); }}
+      />
+
+      <CreateTimetableModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={() => { setShowCreateModal(false); fetchData(); }}
+      />
+
+      <CopyTimetableModal
+        isOpen={showCopyModal}
+        onClose={() => { setShowCopyModal(false); setCopySource(null); }}
+        source={copySource}
+        onSuccess={() => { setShowCopyModal(false); setCopySource(null); fetchData(); }}
+      />
+    </div>
   );
 };
 
