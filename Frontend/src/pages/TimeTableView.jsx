@@ -8,13 +8,21 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import CellHistoryModal from '../components/CellHistoryModal';
 
-const DEPT_COLORS = {
-  NONE: 'bg-slate-100 text-slate-700 border-slate-300',
-  CS:   'bg-blue-100 text-blue-700 border-blue-300',
-  ECE:  'bg-purple-100 text-purple-700 border-purple-300',
-  IT:   'bg-emerald-100 text-emerald-700 border-emerald-300',
-  MNC:  'bg-orange-100 text-orange-700 border-orange-300',
-  ML:   'bg-pink-100 text-pink-700 border-pink-300',
+// Dynamic colors mapped from departments list
+const getDeptStyle = (code, departments) => {
+  if (code === 'NONE') return { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-300', dot: 'bg-slate-400' };
+  const d = departments.find(d => d.code === code);
+  if (d && d.color) {
+    // Basic inline style generation since we can't reliably predict tailwind arbitrary values here
+    return { 
+      custom: true, 
+      bg: `${d.color}15`, 
+      text: d.color, 
+      border: `${d.color}40`,
+      dot: d.color 
+    };
+  }
+  return { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-300', dot: 'bg-indigo-500' };
 };
 
 const timeAgo = (dateStr) => {
@@ -25,10 +33,7 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
-const DEPT_DOT = {
-  CS: 'bg-blue-500', ECE: 'bg-purple-500', IT: 'bg-emerald-500',
-  MNC: 'bg-orange-500', ML: 'bg-pink-500', NONE: 'bg-slate-300',
-};
+// Deprecated DEPT_DOT
 
 const TimetableView = () => {
   const { id }     = useParams();
@@ -47,7 +52,7 @@ const TimetableView = () => {
   const [logLoading, setLogLoading]         = useState(false);
   const [logFetched, setLogFetched]         = useState(false);
 
-  const departments = ['NONE', 'CS', 'ECE', 'IT', 'MNC', 'ML'];
+  const [departments, setDepartments]           = useState([]);
 
   const fetchTimetable = useCallback(async () => {
     if (!id) return;
@@ -57,6 +62,7 @@ const TimetableView = () => {
       const data = res?.data?.data;
       setTimetable(data?.timetable || null);
       setCells(Array.isArray(data?.cells) ? data.cells : []);
+      setDepartments(Array.isArray(data?.departments) ? data.departments : []);
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to fetch timetable');
       navigate('/dashboard');
@@ -88,8 +94,8 @@ const TimetableView = () => {
 
   const canEditCell = (cell) => {
     if (!user || !cell) return false;
-    if (user.role === 'SUPER_ADMIN' || user.role === 'USER') return false;
-    if (cell.department === 'NONE') return true;
+    if (user.role === 'SUPER_ADMIN') return true;
+    if (user.role === 'USER') return false;
     return cell.department === user.department;
   };
 
@@ -103,13 +109,20 @@ const TimetableView = () => {
 
   const handleSaveCell = async () => {
     if (!editingCell) return;
-    if (!editingCell.subject?.trim()) { toast.error('Subject cannot be empty'); return; }
     try {
-      const res = await timetableAPI.updateCell(editingCell.id, {
-        subject:    editingCell.subject.trim(),
-        department: editingCell.department,
-      });
-      toast.success('Cell updated successfully');
+      let res;
+      if (user.role === 'SUPER_ADMIN') {
+        res = await timetableAPI.assignCellDepartment(editingCell.id, {
+          department: editingCell.department,
+        });
+        toast.success('Department assigned successfully');
+      } else {
+        if (!editingCell.subject?.trim()) { toast.error('Subject cannot be empty'); return; }
+        res = await timetableAPI.updateCell(editingCell.id, {
+          subject: editingCell.subject.trim(),
+        });
+        toast.success('Cell updated successfully');
+      }
 
       // Feature 1 — clash warning (non-blocking)
       if (res?.data?.hasClash) {
@@ -205,11 +218,17 @@ const TimetableView = () => {
       doc.setFontSize(9); doc.setTextColor(71,85,105); doc.setFont('helvetica','bold');
       doc.text('Department Legend:', 15, ly);
       const items = [
-        { dept:'CS', name:'Computer Science', color:deptFill.CS },
-        { dept:'ECE', name:'Electronics',     color:deptFill.ECE },
-        { dept:'IT',  name:'Info. Tech.',      color:deptFill.IT  },
-        { dept:'MNC', name:'Mechatronics',     color:deptFill.MNC },
-        { dept:'ML',  name:'Machine Learning', color:deptFill.ML  },
+        { dept:'NONE', name:'No Department', color:[241,245,249] },
+        ...departments.map(d => {
+          let r = 99, g = 102, b = 241;
+          if (d.color && d.color.startsWith('#')) {
+             const hex = d.color.replace('#','');
+             r = parseInt(hex.substring(0,2), 16);
+             g = parseInt(hex.substring(2,4), 16);
+             b = parseInt(hex.substring(4,6), 16);
+          }
+          return { dept: d.code, name: d.name, color: [r, g, b] };
+        })
       ];
       doc.setFont('helvetica','normal');
       let lx = 15, liy = ly + 7;
@@ -476,21 +495,26 @@ const TimetableView = () => {
                                 >
                                   {isEditing ? (
                                     <div className="space-y-2 sm:space-y-3">
-                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase">Subject</label>
-                                        <input type="text" value={editingCell.subject}
-                                          onChange={e => setEditingCell({ ...editingCell, subject: e.target.value })}
-                                          className="w-full px-3 py-2 text-xs sm:text-sm border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                                          placeholder="Enter subject" autoFocus />
-                                      </div>
-                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase">Dept</label>
-                                        <select value={editingCell.department}
-                                          onChange={e => setEditingCell({ ...editingCell, department: e.target.value })}
-                                          className="w-full px-3 py-2 text-xs sm:text-sm border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white">
-                                          {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                                        </select>
-                                      </div>
+                                      {user?.role === 'DEPARTMENT_ADMIN' && (
+                                        <div>
+                                          <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase">Subject</label>
+                                          <input type="text" value={editingCell.subject}
+                                            onChange={e => setEditingCell({ ...editingCell, subject: e.target.value })}
+                                            className="w-full px-3 py-2 text-xs sm:text-sm border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                                            placeholder="Enter subject" autoFocus />
+                                        </div>
+                                      )}
+                                      {user?.role === 'SUPER_ADMIN' && (
+                                        <div>
+                                          <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase">Assign Dept</label>
+                                          <select value={editingCell.department}
+                                            onChange={e => setEditingCell({ ...editingCell, department: e.target.value })}
+                                            className="w-full px-3 py-2 text-xs sm:text-sm border-2 border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 bg-white">
+                                            <option value="NONE">-- No Department --</option>
+                                            {departments.map(d => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}
+                                          </select>
+                                        </div>
+                                      )}
                                       <div className="flex gap-2 pt-1">
                                         <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }}
                                           onClick={e => { e.stopPropagation(); handleSaveCell(); }}
@@ -522,20 +546,36 @@ const TimetableView = () => {
                                             </span>
                                           )}
                                         </div>
-                                        {cell?.department && cell.department !== 'NONE' && (
-                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold border-2 ${DEPT_COLORS[cell.department] || DEPT_COLORS.NONE}`}>
-                                            <div className="w-1.5 h-1.5 rounded-full bg-current"></div>{cell.department}
-                                          </span>
+                                        {cell?.department && cell.department !== 'NONE' && (() => {
+                                          const st = getDeptStyle(cell.department, departments);
+                                          return (
+                                            <span 
+                                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold border-2 ${!st.custom ? `${st.bg} ${st.text} ${st.border}` : ''}`}
+                                              style={st.custom ? { backgroundColor: st.bg, color: st.text, borderColor: st.border } : {}}
+                                            >
+                                              <div className={`w-1.5 h-1.5 rounded-full ${!st.custom ? st.dot : ''}`} style={st.custom ? { backgroundColor: st.dot } : {}}></div>
+                                              {cell.department}
+                                            </span>
+                                          );
+                                        })()}
+                                      </div>
+                                      
+                                      <div className="flex flex-col gap-2 mt-3">
+                                        {cell?.lastEditedBy?.name && (
+                                          <div className="text-[10px] text-slate-400 bg-slate-50 p-1.5 rounded-md border border-slate-100 leading-tight">
+                                            <span className="font-semibold text-slate-500 block truncate">{cell.lastEditedBy.name}</span>
+                                            <span className="truncate block" title={cell.lastEditedBy.email}>{cell.lastEditedBy.email}</span>
+                                          </div>
+                                        )}
+                                        {hasContent && (
+                                          <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }}
+                                            onClick={e => { e.stopPropagation(); handleShowHistory(cell); }}
+                                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg text-xs font-semibold shadow-sm">
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            History
+                                          </motion.button>
                                         )}
                                       </div>
-                                      {hasContent && (
-                                        <motion.button whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }}
-                                          onClick={e => { e.stopPropagation(); handleShowHistory(cell); }}
-                                          className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-lg text-xs font-semibold shadow-sm">
-                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                          History
-                                        </motion.button>
-                                      )}
                                     </div>
                                   )}
                                 </motion.div>
@@ -552,11 +592,18 @@ const TimetableView = () => {
                 <div className="bg-slate-50 border-t border-slate-200 px-6 py-4">
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Department Legend</p>
                   <div className="flex flex-wrap gap-2">
-                    {departments.filter(d => d !== 'NONE').map(dept => (
-                      <span key={dept} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border-2 ${DEPT_COLORS[dept]}`}>
-                        <div className="w-2 h-2 rounded-full bg-current"></div>{dept}
-                      </span>
-                    ))}
+                    {departments.map(dept => {
+                      const st = getDeptStyle(dept.code, departments);
+                      return (
+                        <span key={dept.code} 
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border-2 ${!st.custom ? `${st.bg} ${st.text} ${st.border}` : ''}`}
+                          style={st.custom ? { backgroundColor: st.bg, color: st.text, borderColor: st.border } : {}}
+                        >
+                          <div className={`w-2 h-2 rounded-full ${!st.custom ? st.dot : ''}`} style={st.custom ? { backgroundColor: st.dot } : {}}></div>
+                          {dept.name} ({dept.code})
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -603,23 +650,30 @@ const TimetableView = () => {
                         initial={{ opacity:0, x:-10 }} animate={{ opacity:1, x:0 }} transition={{ delay: i * 0.03 }}
                         className="flex items-start gap-4 px-6 py-4 hover:bg-slate-50 transition-colors">
                         {/* Avatar */}
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm ${
-                          log.editedByDept && log.editedByDept !== 'NONE'
-                            ? `bg-${DEPT_DOT[log.editedByDept]?.replace('bg-','') || 'primary'}-500`
-                            : 'bg-gradient-to-br from-primary-500 to-primary-600'
-                        }`}
-                          style={{ background: log.editedByDept === 'CS' ? '#3b82f6' : log.editedByDept === 'ECE' ? '#8b5cf6' : log.editedByDept === 'IT' ? '#10b981' : log.editedByDept === 'MNC' ? '#f97316' : log.editedByDept === 'ML' ? '#ec4899' : '#6366f1' }}>
-                          {(log.editedByName || 'U').charAt(0).toUpperCase()}
-                        </div>
+                        {(() => {
+                           const st = getDeptStyle(log.editedByDept, departments);
+                           return (
+                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-sm ${!st.custom && log.editedByDept !== 'NONE' ? st.dot : log.editedByDept === 'NONE' ? 'bg-gradient-to-br from-primary-500 to-primary-600' : ''}`}
+                               style={st.custom ? { backgroundColor: st.dot } : {}}>
+                               {(log.editedByName || 'U').charAt(0).toUpperCase()}
+                             </div>
+                           );
+                        })()}
 
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="font-semibold text-slate-900 text-sm">{log.editedByName || 'Unknown'}</span>
-                            {log.editedByDept && log.editedByDept !== 'NONE' && (
-                              <span className={`px-2 py-0.5 rounded-md text-xs font-bold border ${DEPT_COLORS[log.editedByDept] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                                {log.editedByDept}
-                              </span>
-                            )}
+                            {log.editedByDept && log.editedByDept !== 'NONE' && (() => {
+                              const st = getDeptStyle(log.editedByDept, departments);
+                              return (
+                                <span 
+                                  className={`px-2 py-0.5 rounded-md text-xs font-bold border ${!st.custom ? `${st.bg} ${st.text} ${st.border}` : ''}`}
+                                  style={st.custom ? { backgroundColor: st.bg, color: st.text, borderColor: st.border } : {}}
+                                >
+                                  {log.editedByDept}
+                                </span>
+                              );
+                            })()}
                             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${log.action === 'CLEAR' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                               {log.action}
                             </span>

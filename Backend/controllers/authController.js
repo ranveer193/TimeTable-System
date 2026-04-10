@@ -102,7 +102,7 @@ exports.register = async (req, res) => {
  * LOGIN
  * =========================
  * USER → read-only
- * ADMIN → edit allowed cells
+ * DEPARTMENT_ADMIN → edit assigned cells
  * SUPER_ADMIN → full control
  */
 exports.login = async (req, res) => {
@@ -170,7 +170,8 @@ exports.login = async (req, res) => {
         department: user.department,
         permissions: {
           canViewTimetable: true,
-          canEditCell: user.role.startsWith('ADMIN'),
+          canEditCell: user.role === 'DEPARTMENT_ADMIN',
+          canAssignDepartment: user.role === 'SUPER_ADMIN',
           isSuperAdmin: user.role === 'SUPER_ADMIN'
         }
       }
@@ -220,7 +221,8 @@ exports.getMe = async (req, res) => {
         isActive: user.isActive,
         permissions: {
           canViewTimetable: true,
-          canEditCell: user.role.startsWith('ADMIN'),
+          canEditCell: user.role === 'DEPARTMENT_ADMIN',
+          canAssignDepartment: user.role === 'SUPER_ADMIN',
           isSuperAdmin: user.role === 'SUPER_ADMIN'
         }
       }

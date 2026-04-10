@@ -46,11 +46,7 @@ const userSchema = new mongoose.Schema(
       enum: {
         values: [
           'SUPER_ADMIN',
-          'ADMIN_CS',
-          'ADMIN_ECE',
-          'ADMIN_IT',
-          'ADMIN_MNC',
-          'ADMIN_ML',
+          'DEPARTMENT_ADMIN',
           'USER',
           'PENDING'
         ],
@@ -60,13 +56,12 @@ const userSchema = new mongoose.Schema(
       index: true
     },
 
+    // Department code — references Department.code (string-based for simplicity)
     department: {
       type: String,
-      enum: {
-        values: ['CS', 'ECE', 'IT', 'MNC', 'ML', 'NONE'],
-        message: '{VALUE} is not a valid department'
-      },
       default: 'NONE',
+      trim: true,
+      uppercase: true,
       index: true
     },
 
@@ -149,17 +144,14 @@ userSchema.pre('save', async function (next) {
 
 // Validate role-department consistency
 userSchema.pre('save', function (next) {
-  // SUPER_ADMIN and USER have no department
+  // SUPER_ADMIN, USER, and PENDING have no department
   if (this.role === 'SUPER_ADMIN' || this.role === 'USER' || this.role === 'PENDING') {
     this.department = 'NONE';
   }
 
-  // Admin roles must have matching department
-  if (this.role.startsWith('ADMIN_')) {
-    const roleDept = this.role.split('_')[1];
-    if (this.department !== roleDept) {
-      this.department = roleDept;
-    }
+  // DEPARTMENT_ADMIN must have a department set (validated at controller level)
+  if (this.role === 'DEPARTMENT_ADMIN' && (!this.department || this.department === 'NONE')) {
+    return next(new Error('DEPARTMENT_ADMIN must have a department assigned'));
   }
 
   next();

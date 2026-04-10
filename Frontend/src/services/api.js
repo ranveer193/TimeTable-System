@@ -56,12 +56,24 @@ export const superAdminAPI = {
   getUsers:   () => api.get('/super-admin/users'),
   approveUser: (id, data) => {
     if (!id) return Promise.reject(new Error('User ID required'));
-    if (!data?.role || !data?.department) return Promise.reject(new Error('Role and department required'));
+    if (!data?.role) return Promise.reject(new Error('Role is required'));
     return api.put(`/super-admin/approve/${id}`, data);
   },
   deleteUser: (id) => id ? api.delete(`/super-admin/users/${id}`) : Promise.reject(new Error('ID required')),
   rejectUser:        (id) => id ? api.delete(`/super-admin/reject/${id}`) : Promise.reject(new Error('ID required')),
   toggleAdminStatus: (id) => id ? api.put(`/super-admin/toggle-status/${id}`) : Promise.reject(new Error('ID required')),
+};
+
+export const departmentAPI = {
+  getAll:     () => api.get('/departments'),
+  getActive:  () => api.get('/departments/active'),
+  create:     (data) => {
+    if (!data?.name || !data?.code) return Promise.reject(new Error('Name and code required'));
+    return api.post('/departments', data);
+  },
+  update:     (id, data) => id ? api.put(`/departments/${id}`, data) : Promise.reject(new Error('ID required')),
+  toggle:     (id) => id ? api.put(`/departments/${id}/toggle`) : Promise.reject(new Error('ID required')),
+  delete:     (id) => id ? api.delete(`/departments/${id}`) : Promise.reject(new Error('ID required')),
 };
 
 export const timetableAPI = {
@@ -81,6 +93,10 @@ export const timetableAPI = {
   updateCell: (cellId, data) => {
     if (!cellId) return Promise.reject(new Error('Cell ID required'));
     return api.put(`/timetables/cell/${cellId}`, data);
+  },
+  assignCellDepartment: (cellId, data) => {
+    if (!cellId) return Promise.reject(new Error('Cell ID required'));
+    return api.put(`/timetables/cell/${cellId}/assign-department`, data);
   },
   delete: (id) => id ? api.delete(`/timetables/${id}`) : Promise.reject(new Error('ID required')),
   getCellHistory: (cellId) => cellId ? api.get(`/timetables/cell/${cellId}/history`) : Promise.reject(new Error('ID required')),

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { superAdminAPI, timetableAPI } from '../services/api';
+import { superAdminAPI, timetableAPI, departmentAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import ApprovalModal      from '../components/ApprovalModal';
 import CreateTimetableModal from '../components/CreateTimeTableModal';
 import CopyTimetableModal from '../components/CopyTimetableModal';
 import ConfirmModal       from '../components/ConfirmModal';
+import DepartmentModal    from '../components/DepartmentModal';
 
 // ─────────────────────────────────────────────────────────────
 const DEPT_MAP = {
@@ -426,6 +427,9 @@ const SuperAdminDashboard = () => {
   const [selectedUser,    setSelectedUser]    = useState(null);
   const [ttSearch,        setTtSearch]        = useState('');
   const [actionLoading,   setActionLoading]   = useState(false);
+  const [departments,     setDepartments]     = useState([]);
+  const [showDeptModal,   setShowDeptModal]   = useState(false);
+  const [editDept,        setEditDept]        = useState(null);
 
   // ── Modal state ─────────────────────────────────────────────
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -458,13 +462,14 @@ const SuperAdminDashboard = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [statsRes, pendingRes, activeRes, disabledRes, usersRes, ttRes] = await Promise.all([
+      const [statsRes, pendingRes, activeRes, disabledRes, usersRes, ttRes, deptRes] = await Promise.all([
         superAdminAPI.getStats().catch(()          => ({ data: { data: {} } })),
         superAdminAPI.getPendingRequests().catch(() => ({ data: { data: [] } })),
         superAdminAPI.getActiveAdmins().catch(()   => ({ data: { data: [] } })),
         superAdminAPI.getDisabledAdmins().catch(() => ({ data: { data: [] } })),
         superAdminAPI.getUsers().catch(()          => ({ data: { data: [] } })),
         superAdminAPI.getAllTimetables().catch(()  => ({ data: { data: [] } })),
+        departmentAPI.getAll().catch(()            => ({ data: { data: [] } })),
       ]);
       setStats(statsRes?.data?.data || {});
       setPendingRequests(Array.isArray(pendingRes?.data?.data)  ? pendingRes.data.data  : []);
@@ -472,6 +477,7 @@ const SuperAdminDashboard = () => {
       setDisabledAdmins(Array.isArray(disabledRes?.data?.data)  ? disabledRes.data.data : []);
       setUsers(Array.isArray(usersRes?.data?.data)              ? usersRes.data.data    : []);
       setTimetables(Array.isArray(ttRes?.data?.data)            ? ttRes.data.data       : []);
+      setDepartments(Array.isArray(deptRes?.data?.data)          ? deptRes.data.data     : []);
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Failed to fetch data');
     } finally {
@@ -480,6 +486,46 @@ const SuperAdminDashboard = () => {
   };
 
   // ── Handlers — open modal instead of window.confirm ────────
+
+  const handleEditDept = (dept) => {
+    setEditDept(dept);
+    setShowDeptModal(true);
+  };
+
+  const handleToggleDept = async (id) => {
+    setActionLoading(true);
+    try {
+      const res = await departmentAPI.toggle(id);
+      toast.success(res?.data?.message || 'Department status toggled');
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to toggle');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteDept = (id, name) => {
+    openConfirm({
+      title:        `Delete "${name}"?`,
+      description:  'Permanently delete this department. This cannot be undone.',
+      confirmLabel: 'Delete Department',
+      variant:      'danger',
+      onConfirm:    async () => {
+        setActionLoading(true);
+        try {
+          await departmentAPI.delete(id);
+          toast.success('Department deleted');
+          fetchData();
+          closeConfirm();
+        } catch (err) {
+          toast.error(err?.response?.data?.message || 'Failed to delete');
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
+  };
 
   const handleApprove = (user) => {
     if (!user?._id) { toast.error('Invalid user'); return; }
@@ -628,6 +674,12 @@ const SuperAdminDashboard = () => {
       icon: <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
     },
     {
+      id: 'departments', label: 'Departments', fullLabel: 'Departments',
+      count: departments.length,
+      color: 'text-purple-600', activeBg: 'bg-purple-50', bar: 'from-purple-400 to-fuchsia-500',
+      icon: <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>,
+    },
+    {
       id: 'timetables', label: 'Timetables', fullLabel: 'Timetables',
       count: timetables.length,
       color: 'text-blue-600', activeBg: 'bg-blue-50', bar: 'from-blue-400 to-indigo-500',
@@ -689,6 +741,7 @@ const SuperAdminDashboard = () => {
             { title: 'Active Admins',value: stats.activeUsers    ?? activeAdmins.length,    gradient: 'from-emerald-400 to-green-500', iconBg: 'from-emerald-100 to-emerald-200', trend: 'Currently active',    icon: <svg className="w-5 h-5 sm:w-7 sm:h-7 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
             { title: 'Disabled',     value: stats.disabledUsers  ?? disabledAdmins.length,  gradient: 'from-red-400 to-rose-500',      iconBg: 'from-red-100 to-red-200',         trend: 'Access blocked',      icon: <svg className="w-5 h-5 sm:w-7 sm:h-7 text-red-700"     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg> },
             { title: 'Users',        value: stats.totalUsers     ?? users.length,           gradient: 'from-slate-400 to-slate-500',   iconBg: 'from-slate-100 to-slate-200',     trend: 'Read-only accounts',  icon: <svg className="w-5 h-5 sm:w-7 sm:h-7 text-slate-600"   fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> },
+            { title: 'Departments',  value: stats.totalDepartments ?? departments.length,   gradient: 'from-purple-400 to-fuchsia-500', iconBg: 'from-purple-100 to-purple-200', trend: 'In the system',       icon: <svg className="w-5 h-5 sm:w-7 sm:h-7 text-purple-700"  fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> },
             { title: 'Timetables',   value: stats.totalTimetables ?? timetables.length,     gradient: 'from-blue-400 to-indigo-500',   iconBg: 'from-blue-100 to-blue-200',       trend: 'In the system',       icon: <svg className="w-5 h-5 sm:w-7 sm:h-7 text-blue-700"    fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
           ].map(c => <StatCard key={c.title} {...c} />)}
         </div>
@@ -847,6 +900,63 @@ const SuperAdminDashboard = () => {
                 </motion.div>
               )}
 
+              {/* ── Departments ── */}
+              {activeTab === 'departments' && (
+                <motion.div key="departments" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={{ duration: 0.2 }}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                    <p className="text-sm text-slate-500 flex-shrink-0">
+                      Manage academic departments
+                    </p>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                      onClick={() => { setEditDept(null); setShowDeptModal(true); }}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold rounded-xl shadow-md text-sm flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span className="hidden sm:inline">New Department</span>
+                    </motion.button>
+                  </div>
+
+                  {!departments.length ? (
+                    <EmptyState
+                      title="No Departments"
+                      description="Add departments to assign admins."
+                      icon={<svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>}
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {departments.map((dept, i) => (
+                        <motion.div
+                          key={dept._id}
+                          initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.05 }}
+                          className={`relative group bg-white rounded-xl sm:rounded-2xl shadow-md border ${dept.isActive ? 'border-slate-200 hover:border-purple-200' : 'border-red-200 opacity-75'} p-5 overflow-hidden`}
+                        >
+                          <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${dept.isActive ? 'from-purple-400 to-fuchsia-500' : 'from-red-400 to-rose-500'}`} />
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: dept.color || '#6366f1' }}>
+                                {dept.code}
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-slate-900">{dept.name}</h3>
+                                <span className={`text-xs font-semibold ${dept.isActive ? 'text-emerald-600' : 'text-red-500'}`}>{dept.isActive ? 'Active' : 'Disabled'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleEditDept(dept)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg text-xs font-semibold">Edit</button>
+                            <button onClick={() => handleToggleDept(dept._id)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 rounded-lg text-xs font-semibold">{dept.isActive ? 'Disable' : 'Enable'}</button>
+                            <button onClick={() => handleDeleteDept(dept._id, dept.name)} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-red-500 text-slate-500 hover:text-white rounded-lg"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
               {/* ── Timetables ── */}
               {activeTab === 'timetables' && (
                 <motion.div key="timetables" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={{ duration: 0.2 }}>
@@ -946,6 +1056,13 @@ const SuperAdminDashboard = () => {
         onClose={() => { setShowCopyModal(false); setCopySource(null); }}
         source={copySource}
         onSuccess={() => { setShowCopyModal(false); setCopySource(null); fetchData(); }}
+      />
+
+      <DepartmentModal
+        isOpen={showDeptModal}
+        onClose={() => { setShowDeptModal(false); setEditDept(null); }}
+        department={editDept}
+        onSuccess={() => { setShowDeptModal(false); setEditDept(null); fetchData(); }}
       />
 
       {/* Single shared ConfirmModal — handles disable, delete user, reject, delete timetable */}

@@ -138,11 +138,12 @@ export const AuthProvider = ({ children }) => {
   const permissions = {
     isLoggedIn: !!user,
     isSuperAdmin: user?.role === 'SUPER_ADMIN',
-    isAdmin: user?.role?.startsWith('ADMIN_') || false,
+    isDepartmentAdmin: user?.role === 'DEPARTMENT_ADMIN',
     isUser: user?.role === 'USER',
     canViewTimetable: !!user,
     canEditCell:
-      (user?.role?.startsWith('ADMIN_') || false) && user?.isApproved === true,
+      user?.role === 'DEPARTMENT_ADMIN' && user?.isApproved === true,
+    canAssignDepartment: user?.role === 'SUPER_ADMIN',
   };
 
   const value = {

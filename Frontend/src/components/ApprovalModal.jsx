@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { superAdminAPI } from '../services/api';
+import { superAdminAPI, departmentAPI } from '../services/api';
 import toast from 'react-hot-toast';
 
 const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
@@ -9,22 +9,30 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
     department: '',
   });
   const [loading, setLoading] = useState(false);
+  const [departments, setDepartments] = useState([]);
+  const [fetchingDepts, setFetchingDepts] = useState(false);
 
-  const roles = [
-    { value: 'USER', label: 'Read-Only User', dept: 'NONE', icon: '👁️', color: 'from-slate-500 to-slate-600' },
-    { value: 'ADMIN_CS', label: 'CS Admin', dept: 'CS', icon: '💻', color: 'from-blue-500 to-blue-600' },
-    { value: 'ADMIN_ECE', label: 'ECE Admin', dept: 'ECE', icon: '⚡', color: 'from-purple-500 to-purple-600' },
-    { value: 'ADMIN_IT', label: 'IT Admin', dept: 'IT', icon: '🖥️', color: 'from-emerald-500 to-emerald-600' },
-    { value: 'ADMIN_MNC', label: 'MNC Admin', dept: 'MNC', icon: '📊', color: 'from-orange-500 to-orange-600' },
-    { value: 'ADMIN_ML', label: 'ML Admin', dept: 'ML', icon: '🤖', color: 'from-pink-500 to-pink-600' },
-  ];
-
-  // Reset form when modal opens/closes or user changes
+  // Fetch departments when modal opens
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen) {
+      fetchDepartments();
+    } else {
       setFormData({ role: '', department: '' });
+      setDepartments([]);
     }
   }, [isOpen]);
+
+  const fetchDepartments = async () => {
+    setFetchingDepts(true);
+    try {
+      const res = await departmentAPI.getActive();
+      setDepartments(res.data.data || []);
+    } catch (err) {
+      toast.error('Failed to load departments');
+    } finally {
+      setFetchingDepts(false);
+    }
+  };
 
   const handleRoleSelect = (role, dept) => {
     setFormData({ role, department: dept });
@@ -32,7 +40,7 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
 
   const handleApprove = async () => {
     if (!formData.role || !formData.department) {
-      toast.error('Please select a role');
+      toast.error('Please select a role and department (if applicable)');
       return;
     }
 
@@ -78,7 +86,6 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -87,16 +94,14 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
             className="absolute inset-0 bg-black/60 backdrop-blur-md"
           />
 
-          {/* Modal */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             transition={{ type: "spring", duration: 0.5 }}
-            className="relative bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden"
+            className="relative bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col"
           >
-            {/* Header with gradient */}
-            <div className="relative bg-gradient-to-br from-primary-600 via-primary-600 to-primary-700 text-white px-6 sm:px-8 py-6 sm:py-8">
+            <div className="relative bg-gradient-to-br from-primary-600 via-primary-600 to-primary-700 text-white px-6 sm:px-8 py-6 flex-shrink-0">
               <div className="absolute inset-0 opacity-10">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white rounded-full blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-32 h-32 bg-primary-800 rounded-full blur-3xl"></div>
@@ -120,9 +125,7 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
               </div>
             </div>
 
-            {/* Content */}
-            <div className="px-6 sm:px-8 py-6 overflow-y-auto max-h-[calc(90vh-220px)]">
-              {/* User Info Card */}
+            <div className="px-6 sm:px-8 py-6 overflow-y-auto flex-1">
               <div className="bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-slate-200 rounded-2xl p-4 sm:p-5 mb-6">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center text-white font-bold text-xl sm:text-2xl shadow-lg flex-shrink-0">
@@ -136,54 +139,50 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
                 </div>
               </div>
 
-              {/* Role Selection */}
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-4 uppercase tracking-wide flex items-center gap-2">
                   <svg className="w-4 h-4 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
-                  Select Role & Department
+                  Select Role
                 </label>
-                <div className="grid grid-cols-1 gap-3">
-                  {Array.isArray(roles) && roles.map((role, index) => (
+                
+                {fetchingDepts ? (
+                  <div className="flex justify-center items-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* View Only User */}
                     <motion.button
-                      key={role.value}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.05 }}
                       whileHover={{ scale: 1.02, x: 4 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => handleRoleSelect(role.value, role.dept)}
+                      onClick={() => handleRoleSelect('USER', 'NONE')}
                       disabled={loading}
                       className={`group p-4 rounded-xl sm:rounded-2xl border-2 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden ${
-                        formData.role === role.value
+                        formData.role === 'USER'
                           ? 'border-primary-500 bg-gradient-to-br from-primary-50 to-white shadow-lg shadow-primary-500/20'
                           : 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-md'
                       }`}
                     >
-                      {/* Background gradient on select */}
-                      {formData.role === role.value && (
-                        <div className={`absolute inset-0 bg-gradient-to-r ${role.color} opacity-5`}></div>
+                      {formData.role === 'USER' && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-slate-500 to-slate-600 opacity-5"></div>
                       )}
                       
                       <div className="relative flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-white text-lg sm:text-xl shadow-md flex-shrink-0`}>
-                            {role.icon}
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center text-white text-lg sm:text-xl shadow-md flex-shrink-0">
+                            👁️
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-slate-900 text-sm sm:text-base">{role.label}</p>
-                            <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-                              {role.dept === 'NONE' ? 'No Department Access' : `${role.dept} Department`}
-                            </p>
+                            <p className="font-bold text-slate-900 text-sm sm:text-base">Read-Only User</p>
+                            <p className="text-xs sm:text-sm text-slate-600 mt-0.5">No Department Access</p>
                           </div>
                         </div>
-                        {formData.role === role.value && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="flex-shrink-0"
-                          >
+                        {formData.role === 'USER' && (
+                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
                             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg">
                               <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -193,13 +192,59 @@ const ApprovalModal = ({ isOpen, onClose, user, onSuccess }) => {
                         )}
                       </div>
                     </motion.button>
-                  ))}
-                </div>
+
+                    {/* Department Admins dynamically rendered */}
+                    {departments.map((dept, index) => (
+                      <motion.button
+                        key={dept.code}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: (index + 1) * 0.05 }}
+                        whileHover={{ scale: 1.02, x: 4 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleRoleSelect('DEPARTMENT_ADMIN', dept.code)}
+                        disabled={loading}
+                        className={`group p-4 rounded-xl sm:rounded-2xl border-2 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden ${
+                          formData.role === 'DEPARTMENT_ADMIN' && formData.department === dept.code
+                            ? 'border-primary-500 bg-gradient-to-br from-primary-50 to-white shadow-lg shadow-primary-500/20'
+                            : 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-md'
+                        }`}
+                      >
+                        {formData.role === 'DEPARTMENT_ADMIN' && formData.department === dept.code && (
+                          <div className="absolute inset-0 opacity-5" style={{ backgroundColor: dept.color }}></div>
+                        )}
+                        
+                        <div className="relative flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div 
+                              className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-white text-lg sm:text-xl shadow-md flex-shrink-0 font-bold"
+                              style={{ backgroundColor: dept.color }}
+                            >
+                              {dept.code.substring(0, 2)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-slate-900 text-sm sm:text-base">{dept.name} Admin</p>
+                              <p className="text-xs sm:text-sm text-slate-600 mt-0.5">{dept.code} Department</p>
+                            </div>
+                          </div>
+                          {formData.role === 'DEPARTMENT_ADMIN' && formData.department === dept.code && (
+                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex-shrink-0">
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg">
+                                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                            </motion.div>
+                          )}
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Footer Actions */}
-            <div className="px-6 sm:px-8 py-5 sm:py-6 bg-gradient-to-b from-white to-slate-50 border-t border-slate-200">
+            <div className="px-6 sm:px-8 py-5 sm:py-6 bg-gradient-to-b from-white to-slate-50 border-t border-slate-200 flex-shrink-0">
               <div className="flex gap-3">
                 <motion.button
                   whileHover={{ scale: 1.02 }}

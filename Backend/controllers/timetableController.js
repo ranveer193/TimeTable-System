@@ -1,6 +1,7 @@
 const Timetable     = require('../models/Timetable');
 const TimetableCell = require('../models/TimetableCell');
 const TimetableLog  = require('../models/TimetableLog');
+const Department    = require('../models/Department');
 const { enrichWithCellStats } = require('../utils/enrichTimetables');
 const mongoose      = require('mongoose');
 const crypto        = require('crypto');
@@ -10,7 +11,7 @@ const generateCells = (timetableId, days, periodsPerDay) => {
   const cells = [];
   for (const day of days) {
     for (let period = 1; period <= periodsPerDay; period++) {
-      cells.push({ timetableId, day, period, subject: '', department: 'NONE', editableByRole: 'ALL' });
+      cells.push({ timetableId, day, period, subject: '', department: 'NONE' });
     }
   }
   return cells;
@@ -135,7 +136,10 @@ exports.getTimetable = async (req, res) => {
       .sort({ day: 1, period: 1 })
       .lean();
 
-    res.status(200).json({ success: true, data: { timetable, cells: cells || [] } });
+    // Also send active departments for dropdown use
+    const departments = await Department.findActive();
+
+    res.status(200).json({ success: true, data: { timetable, cells: cells || [], departments } });
   } catch (err) {
     console.error('Get timetable error:', err);
     res.status(500).json({ success: false, message: err.message || 'Server error' });
@@ -168,12 +172,86 @@ exports.getPublicTimetable = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UPDATE CELL — ADMIN_* only (clash detection + activity log)
+// ASSIGN CELL DEPARTMENT — SUPER_ADMIN only
+// Sets which department owns a cell (and optionally clears subject)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.assignCellDepartment = async (req, res) => {
+  try {
+    const { cellId } = req.params;
+    const { department } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(cellId))
+      return res.status(400).json({ success: false, message: 'Invalid cell ID' });
+
+    if (req.user.role !== 'SUPER_ADMIN')
+      return res.status(403).json({ success: false, message: 'Only Super Admin can assign departments to cells' });
+
+    if (!department)
+      return res.status(400).json({ success: false, message: 'Department is required' });
+
+    const upperDept = department.trim().toUpperCase();
+
+    // Validate department exists (or is NONE to un-assign)
+    if (upperDept !== 'NONE') {
+      const deptExists = await Department.findOne({ code: upperDept, isActive: true });
+      if (!deptExists)
+        return res.status(400).json({ success: false, message: `Department "${upperDept}" does not exist or is inactive` });
+    }
+
+    const cell = await TimetableCell.findById(cellId);
+    if (!cell) return res.status(404).json({ success: false, message: 'Cell not found' });
+
+    const previousDept = cell.department;
+    cell.department = upperDept;
+
+    // Set lastEditedBy
+    cell.lastEditedBy = {
+      name: req.user.name,
+      email: req.user.email,
+      date: new Date()
+    };
+
+    // If un-assigning (setting to NONE), also clear the subject
+    if (upperDept === 'NONE') {
+      cell.subject = '';
+    }
+
+    await cell.save();
+
+    // Log the department assignment
+    TimetableLog.create({
+      timetableId:     cell.timetableId,
+      cellId:          cell._id,
+      day:             cell.day,
+      period:          cell.period,
+      editedBy:        req.user._id,
+      editedByName:    req.user.name,
+      editedByDept:    'SUPER_ADMIN',
+      previousSubject: `Dept: ${previousDept}`,
+      newSubject:      `Dept: ${upperDept}`,
+      department:      upperDept,
+      action:          'UPDATE'
+    }).catch(err => console.error('Activity log write error:', err));
+
+    res.status(200).json({
+      success: true,
+      message: `Cell assigned to ${upperDept === 'NONE' ? 'no department' : upperDept}`,
+      data: cell
+    });
+  } catch (err) {
+    console.error('Assign cell department error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE CELL SUBJECT — DEPARTMENT_ADMIN only (clash detection + activity log)
+// Dept admins can ONLY edit subject, NOT change department
 // ─────────────────────────────────────────────────────────────────────────────
 exports.updateCell = async (req, res) => {
   try {
     const { cellId } = req.params;
-    const { subject, department } = req.body;
+    const { subject } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(cellId))
       return res.status(400).json({ success: false, message: 'Invalid cell ID' });
@@ -182,29 +260,29 @@ exports.updateCell = async (req, res) => {
     if (!cell) return res.status(404).json({ success: false, message: 'Cell not found' });
 
     if (req.user.role === 'SUPER_ADMIN')
-      return res.status(403).json({ success: false, message: 'Super admin cannot edit timetable cells' });
+      return res.status(403).json({ success: false, message: 'Super Admin should use the assign-department endpoint. Use department admins to edit subjects.' });
     if (req.user.role === 'USER')
       return res.status(403).json({ success: false, message: 'Read-only users cannot edit timetable cells' });
+    if (req.user.role !== 'DEPARTMENT_ADMIN')
+      return res.status(403).json({ success: false, message: 'Only department admins can edit cell subjects' });
 
-    if (cell.department !== 'NONE' && cell.department !== req.user.department)
+    // Cell must be assigned to this admin's department
+    if (cell.department === 'NONE')
+      return res.status(403).json({ success: false, message: 'This cell has no department assigned yet. Ask Super Admin to assign a department first.' });
+    if (cell.department !== req.user.department)
       return res.status(403).json({ success: false, message: `Only ${cell.department} admin can edit this cell` });
-
-    const effectiveDept = department || cell.department;
-    if (cell.department === 'NONE' && effectiveDept !== 'NONE' && effectiveDept !== req.user.department)
-      return res.status(403).json({ success: false, message: 'You can only assign cells to your own department' });
 
     // ── Feature 1: Clash Detection ────────────────────────────────────────────
     let hasClash = false;
     let clashRoom = null;
     const newSubject = typeof subject === 'string' ? subject.trim() : '';
-    const deptToCheck = effectiveDept !== 'NONE' ? effectiveDept : null;
 
-    if (deptToCheck && newSubject) {
+    if (cell.department !== 'NONE' && newSubject) {
       const clashCell = await TimetableCell.findOne({
         timetableId: { $ne: cell.timetableId },
         day: cell.day,
         period: cell.period,
-        department: deptToCheck,
+        department: cell.department,
         subject: { $nin: ['', null] },
         isDeleted: { $ne: true }
       }).populate({ path: 'timetableId', select: 'roomName', match: { isDeleted: { $ne: true } } });
@@ -221,10 +299,12 @@ exports.updateCell = async (req, res) => {
       cell.addHistory(cell.subject, req.user._id, req.user.name);
 
     if (subject !== undefined) cell.subject = newSubject;
-    if (department) {
-      cell.department   = department.trim();
-      cell.editableByRole = department === 'NONE' ? 'ALL' : `ADMIN_${department}`;
-    }
+
+    cell.lastEditedBy = {
+      name: req.user.name,
+      email: req.user.email,
+      date: new Date()
+    };
 
     await cell.save();
     await cell.populate('history.editedBy', 'name role');

@@ -9,6 +9,7 @@ const authRoutes = require('./routes/authRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const timetableRoutes = require('./routes/timetableRoutes');
 const publicRoutes = require('./routes/publicRoutes');
+const departmentRoutes = require('./routes/departmentRoutes');
 
 // Initialize express
 const app = express();
@@ -26,6 +27,7 @@ app.use('/api/public', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/timetables', timetableRoutes);
+app.use('/api/departments', departmentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

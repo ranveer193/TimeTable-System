@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const {
   createTimetable, copyTimetable, getTimetables, getTimetable,
-  updateCell, getActivityLog, deleteTimetable
+  updateCell, assignCellDepartment, getActivityLog, deleteTimetable
 } = require('../controllers/timetableController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -13,10 +13,17 @@ router.route('/')
   .get(getTimetables)
   .post(authorize('SUPER_ADMIN'), createTimetable);
 
-// ── Cell edit (before /:id to avoid conflict) ─────────────────────────────────
+// ── Cell department assignment (SUPER_ADMIN only — before /:id) ───────────────
+router.put(
+  '/cell/:cellId/assign-department',
+  authorize('SUPER_ADMIN'),
+  assignCellDepartment
+);
+
+// ── Cell subject edit (DEPARTMENT_ADMIN only) ─────────────────────────────────
 router.put(
   '/cell/:cellId',
-  authorize('ADMIN_CS', 'ADMIN_ECE', 'ADMIN_IT', 'ADMIN_MNC', 'ADMIN_ML'),
+  authorize('DEPARTMENT_ADMIN'),
   updateCell
 );
 

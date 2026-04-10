@@ -62,6 +62,8 @@ exports.protect = async (req, res, next) => {
  * ===============================
  * Example:
  * authorize('SUPER_ADMIN')
+ * authorize('DEPARTMENT_ADMIN')
+ * authorize('SUPER_ADMIN', 'DEPARTMENT_ADMIN')
  */
 exports.authorize = (...roles) => {
   return (req, res, next) => {
@@ -79,17 +81,13 @@ exports.authorize = (...roles) => {
  * ===============================
  * VIEW ACCESS (READ-ONLY)
  * ===============================
- * USER + ADMIN + SUPER_ADMIN
+ * USER + DEPARTMENT_ADMIN + SUPER_ADMIN
  */
 exports.authorizeView = () => {
   return (req, res, next) => {
     const allowedRoles = [
       'SUPER_ADMIN',
-      'ADMIN_CS',
-      'ADMIN_ECE',
-      'ADMIN_IT',
-      'ADMIN_MNC',
-      'ADMIN_ML',
+      'DEPARTMENT_ADMIN',
       'USER'
     ];
 
@@ -109,18 +107,18 @@ exports.authorizeView = () => {
  * EDIT ACCESS (CELL LEVEL)
  * ===============================
  * - Only department admins
- * - Super admin explicitly blocked
+ * - Super admin explicitly blocked from subject editing
  */
 exports.authorizeEdit = () => {
   return (req, res, next) => {
     if (req.user.role === 'SUPER_ADMIN') {
       return res.status(403).json({
         success: false,
-        message: 'Super admin has read-only access'
+        message: 'Super admin should use department assignment. Department admins edit subjects.'
       });
     }
 
-    if (!req.user.role.startsWith('ADMIN_')) {
+    if (req.user.role !== 'DEPARTMENT_ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Only department admins can edit timetable cells'

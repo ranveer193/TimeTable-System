@@ -34,7 +34,8 @@ const cellHistorySchema = new mongoose.Schema(
  * Timetable Cell Schema
  * -------------------------
  * One cell = one room slot
- * Shared by departments
+ * Department assigned by Super Admin only
+ * Subject edited by Department Admin only
  */
 const timetableCellSchema = new mongoose.Schema(
   {
@@ -66,32 +67,14 @@ const timetableCellSchema = new mongoose.Schema(
       maxlength: [200, 'Subject cannot exceed 200 characters']
     },
 
-    // Which department owns this slot
+    // Which department owns this slot — set by SUPER_ADMIN only
+    // References Department.code (dynamic — validated at controller level)
     department: {
       type: String,
-      enum: {
-        values: ['CS', 'ECE', 'IT', 'MNC', 'ML', 'NONE'],
-        message: '{VALUE} is not a valid department'
-      },
       default: 'NONE',
+      trim: true,
+      uppercase: true,
       index: true
-    },
-
-    // UI + backend enforcement
-    editableByRole: {
-      type: String,
-      enum: {
-        values: [
-          'ADMIN_CS',
-          'ADMIN_ECE',
-          'ADMIN_IT',
-          'ADMIN_MNC',
-          'ADMIN_ML',
-          'ALL'
-        ],
-        message: '{VALUE} is not a valid editable role'
-      },
-      default: 'ALL'
     },
 
     // Only last 2 edits preserved
@@ -111,6 +94,13 @@ const timetableCellSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
       index: true
+    },
+
+    // Tracking the last editor globally on the cell
+    lastEditedBy: {
+      name: { type: String, default: '' },
+      email: { type: String, default: '' },
+      date: { type: Date }
     }
   },
   {

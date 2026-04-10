@@ -2,6 +2,7 @@ const User          = require('../models/User');
 const Timetable     = require('../models/Timetable');
 const TimetableCell = require('../models/TimetableCell');
 const TimetableLog  = require('../models/TimetableLog');
+const Department    = require('../models/Department');
 const { enrichWithCellStats } = require('../utils/enrichTimetables');
 const { sendApprovalEmail }   = require('../utils/email');
 const mongoose  = require('mongoose');
@@ -17,13 +18,13 @@ exports.getPendingRequests = async (req, res) => {
   }
 };
 
-// ── Active ADMIN_* accounts only ──────────────────────────────────────────────
+// ── Active DEPARTMENT_ADMIN accounts only ─────────────────────────────────────
 exports.getActiveAdmins = async (req, res) => {
   try {
     const data = await User.find({
       isApproved: true,
       isActive:   true,
-      role:       { $regex: /^ADMIN_/ },
+      role:       'DEPARTMENT_ADMIN',
     }).select('-password').sort({ createdAt: -1 }).lean();
     res.status(200).json({ success: true, count: data.length, data });
   } catch (err) {
@@ -31,12 +32,12 @@ exports.getActiveAdmins = async (req, res) => {
   }
 };
 
-// ── Disabled accounts (ADMIN_* only) ─────────────────────────────────────────
+// ── Disabled accounts (DEPARTMENT_ADMIN only) ────────────────────────────────
 exports.getDisabledAdmins = async (req, res) => {
   try {
     const data = await User.find({
       isActive: false,
-      role:     { $regex: /^ADMIN_/ },
+      role:     'DEPARTMENT_ADMIN',
     }).select('-password').sort({ createdAt: -1 }).lean();
     res.status(200).json({ success: true, count: data.length, data });
   } catch (err) {
@@ -64,19 +65,27 @@ exports.approveUser = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id))
       return res.status(400).json({ success: false, message: 'Invalid user ID' });
 
-    const validRoles = ['USER', 'ADMIN_CS', 'ADMIN_ECE', 'ADMIN_IT', 'ADMIN_MNC', 'ADMIN_ML'];
+    const validRoles = ['USER', 'DEPARTMENT_ADMIN'];
     if (!validRoles.includes(role))
       return res.status(400).json({
         success: false,
         message: 'Invalid role. Must be one of: ' + validRoles.join(', ')
       });
 
-    if (role.startsWith('ADMIN_')) {
-      const expectedDept = role.split('_')[1];
-      if (!department || department !== expectedDept)
+    // Validate department for DEPARTMENT_ADMIN
+    if (role === 'DEPARTMENT_ADMIN') {
+      if (!department || department === 'NONE')
         return res.status(400).json({
           success: false,
-          message: `Department must be ${expectedDept} for role ${role}`
+          message: 'Department is required for DEPARTMENT_ADMIN role'
+        });
+
+      // Verify department exists and is active
+      const deptExists = await Department.findOne({ code: department.toUpperCase(), isActive: true });
+      if (!deptExists)
+        return res.status(400).json({
+          success: false,
+          message: `Department "${department}" does not exist or is inactive`
         });
     }
 
@@ -91,7 +100,7 @@ exports.approveUser = async (req, res) => {
     user.isApproved = true;
     user.isActive   = true;
     user.role       = role;
-    user.department = role === 'USER' ? 'NONE' : department;
+    user.department = role === 'USER' ? 'NONE' : department.toUpperCase();
     await user.save();
 
     // Fire-and-forget — never blocks the response
@@ -146,9 +155,6 @@ exports.rejectUser = async (req, res) => {
 };
 
 // ── Hard-delete any approved user ────────────────────────────────────────────
-// Edge cases handled:
-//   1. Self-delete guard
-//   2. Orphaned editedBy refs in cell history and activity logs
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -232,12 +238,14 @@ exports.getDashboardStats = async (req, res) => {
       disabledCount,
       timetableCount,
       userCount,
+      departmentCount,
     ] = await Promise.all([
       User.countDocuments({ role: 'PENDING',  isApproved: false }),
-      User.countDocuments({ isApproved: true, isActive: true, role: { $regex: /^ADMIN_/ } }),
-      User.countDocuments({ isActive: false,                  role: { $regex: /^ADMIN_/ } }),
+      User.countDocuments({ isApproved: true, isActive: true, role: 'DEPARTMENT_ADMIN' }),
+      User.countDocuments({ isActive: false,                  role: 'DEPARTMENT_ADMIN' }),
       Timetable.countDocuments(),
       User.countDocuments({ role: 'USER' }),
+      Department.countDocuments({ isActive: true }),
     ]);
 
     res.status(200).json({
@@ -248,6 +256,7 @@ exports.getDashboardStats = async (req, res) => {
         disabledUsers:   disabledCount,
         totalTimetables: timetableCount,
         totalUsers:      userCount,
+        totalDepartments: departmentCount,
       },
     });
   } catch (err) {
@@ -260,6 +269,7 @@ exports.getDashboardStats = async (req, res) => {
         disabledUsers:   0,
         totalTimetables: 0,
         totalUsers:      0,
+        totalDepartments: 0,
       },
     });
   }
